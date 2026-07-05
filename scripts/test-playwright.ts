@@ -109,7 +109,11 @@ async function main() {
       const cards = Array.from(document.querySelectorAll('.card')) as HTMLElement[];
       const rects = cards
         .map(el => ({ el, rect: el.getBoundingClientRect() }))
-        .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+        // A toast (position: fixed, e.g. the cycle-completion toast) is
+        // *designed* to float over whatever's behind it — that's not the
+        // layout bug this check exists for, so exclude fixed-position
+        // overlays rather than flag intentional overlays as regressions.
+        .filter(({ el, rect }) => rect.width > 0 && rect.height > 0 && getComputedStyle(el).position !== 'fixed');
       const found: string[] = [];
       for (let i = 0; i < rects.length; i++) {
         for (let j = i + 1; j < rects.length; j++) {

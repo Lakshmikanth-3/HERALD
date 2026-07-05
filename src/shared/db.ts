@@ -346,9 +346,26 @@ export interface FeedHistoryItem {
 
 export function getFeedHistory(limit = 50): FeedHistoryItem[] {
   const db = getDb();
-  const paymentRows = db.prepare(
-    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'skipped', 'deposit', 'withdrawal') ORDER BY timestamp DESC LIMIT ?`
+  // 'skipped' rows can be numerous — a single low-relevance cycle can emit
+  // dozens of them — and would otherwise crowd the rarer, more important
+  // 'sent'/'received'/'deposit'/'withdrawal' rows out of a single "most
+  // recent N of any type" window. That starved the FlowGraph (and Live
+  // Feed) of real purchase/sale history that's still sitting right there in
+  // the DB — confirmed live: Network's all-time stats showed 45 sources
+  // purchased and $0.80 total volume moved, while the Economy page's
+  // FlowGraph showed its "no data yet" empty state, because every one of
+  // the 50 most recent payment rows happened to be a skip from one bad
+  // cycle. Fetch the economic rows first with the full budget, and only
+  // backfill remaining room with skips — skips can push other skips out,
+  // never a real payment.
+  const economicRows = db.prepare(
+    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'deposit', 'withdrawal') ORDER BY timestamp DESC LIMIT ?`
   ).all(limit) as Record<string, unknown>[];
+  const skipBudget = Math.max(0, Math.min(limit - economicRows.length, 15));
+  const skipRows = skipBudget > 0
+    ? db.prepare(`SELECT * FROM payments WHERE type = 'skipped' ORDER BY timestamp DESC LIMIT ?`).all(skipBudget) as Record<string, unknown>[]
+    : [];
+  const paymentRows = [...economicRows, ...skipRows];
   const briefRows = db.prepare(
     `SELECT * FROM briefs ORDER BY published_at DESC LIMIT ?`
   ).all(limit) as Record<string, unknown>[];

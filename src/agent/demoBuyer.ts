@@ -24,10 +24,12 @@ import { getConfig, setConfig } from '../shared/db';
 const TERMINAL_SUCCESS = new Set(['COMPLETE', 'CONFIRMED']);
 const TERMINAL_FAILURE = new Set(['FAILED', 'DENIED', 'CANCELLED']);
 
-// Funds the demo wallet with enough Gateway balance for ~10 typical brief
-// purchases ($0.03-0.05 each) without needing to re-fund on every buy.
-const FUND_AMOUNT_USDC = '0.6';
-const DEPOSIT_AMOUNT_ATOMIC = '500000'; // 0.5 USDC, 6 decimals
+// Funds the demo wallet with enough Gateway balance for ~40 typical brief
+// purchases ($0.03-0.05 each) without needing to re-fund on every buy — the
+// original $0.50 allocation ran dry after a single afternoon of real demo/
+// test traffic. If it ever runs out again: npx tsx scripts/topup-demo-buyer.ts
+const FUND_AMOUNT_USDC = '2.1';
+const DEPOSIT_AMOUNT_ATOMIC = '2000000'; // 2.0 USDC, 6 decimals
 
 async function waitForTransaction(circleApiKey: string, id: string, timeoutMs = 90000): Promise<{ state: string; txHash?: string }> {
   const start = Date.now();

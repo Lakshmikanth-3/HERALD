@@ -85,8 +85,15 @@ export default function FlowGraph({ events, history }: Props) {
   const processedIdsRef = useRef<Set<string>>(new Set())
   const [hasData, setHasData] = useState(false)
 
-  // Seed real aggregated totals from DB history once on mount — no particles,
-  // just the static picture of who's been paid / who's paid so far.
+  // Seed real aggregated totals from DB history — no particles, just the
+  // static picture of who's been paid / who's paid so far. Depends on
+  // `history` itself, not `[]`: the parent page fetches feed-history
+  // asynchronously in its own effect, so `history` is always `[]` on this
+  // component's first mount — an empty-deps "run once on mount" effect
+  // would seed from that empty array and then never run again once the
+  // real data arrived, permanently stuck showing the empty state despite
+  // real history existing. dedupeNewById makes re-running this safe: ids
+  // already applied are skipped, so this only ever processes what's new.
   useEffect(() => {
     if (!history || history.length === 0) return
     const state = stateRef.current
@@ -95,8 +102,7 @@ export default function FlowGraph({ events, history }: Props) {
       if (applyEventToState(state, event, false)) seeded = true
     }
     if (seeded) setHasData(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [history])
 
   // Live events animate particles along the edges. Processed by id so that
   // events already seen (including ones carried over from `history`) are

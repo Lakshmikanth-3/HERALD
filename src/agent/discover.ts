@@ -59,12 +59,17 @@ const RSS_FEEDS: Record<string, string[]> = {
 function detectCategory(topic: string): string[] {
   const t = topic.toLowerCase();
   const categories: string[] = ['general'];
-  if (/ai|artificial intelligence|machine learning|llm|gpt|claude|gemini/.test(t)) categories.unshift('ai', 'technology');
+  // Word STEMS, not whole words — "trade" as a whole word never matches
+  // "trading" (different suffix), so a topic like "explain the trading
+  // concept" silently missed every category and fell through to the
+  // generic 'general' feeds. Matching the shared root (e.g. "trad" covers
+  // trade/trading/trader/trades) is what these checks actually intend.
+  if (/\bai\b|artificial intelligence|machine learning|llm|gpt|claude|gemini/.test(t)) categories.unshift('ai', 'technology');
   if (/crypto|bitcoin|ethereum|defi|blockchain|usdc|web3/.test(t)) categories.unshift('crypto');
-  if (/finance|market|stock|economy|trade|invest/.test(t)) categories.unshift('finance');
-  if (/politics|election|government|regulation|policy|law/.test(t)) categories.unshift('politics');
-  if (/science|research|climate|environment|health|medical/.test(t)) categories.unshift('science');
-  if (/tech|software|startup|developer|cloud|cyber/.test(t)) categories.unshift('technology');
+  if (/financ|market|stock|econom|trad|invest/.test(t)) categories.unshift('finance');
+  if (/politic|elect|govern|regul|polic|\blaw\b/.test(t)) categories.unshift('politics');
+  if (/scien|research|climat|environ|health|medic/.test(t)) categories.unshift('science');
+  if (/tech|softw|startup|develop|cloud|cyber/.test(t)) categories.unshift('technology');
   return [...new Set(categories)];
 }
 

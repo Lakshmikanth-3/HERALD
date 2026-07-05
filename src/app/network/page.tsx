@@ -105,10 +105,17 @@ export default function NetworkPage() {
       <div className="network-grid" style={{
         flex: 1, padding: '0 20px 20px', maxWidth: 1200, margin: '0 auto', width: '100%',
       }}>
-        <div style={{ minWidth: 0, minHeight: 360 }}>
+        {/* Fixed height, not minHeight — the Recent Activity card's
+            overflow-y:auto (below) needs a definite height to clip
+            against, otherwise it grows to fit every feed entry at full
+            height instead of scrolling, and since CSS Grid stretches both
+            columns in a row to match the tallest one, the FlowGraph's
+            canvas inherited that same runaway height, rendering its nodes
+            far outside the visible viewport. */}
+        <div style={{ minWidth: 0, height: 480 }}>
           <FlowGraph events={allEvents} history={flowHistory} />
         </div>
-        <div className="card" style={{ minWidth: 0, minHeight: 360, display: 'flex', flexDirection: 'column' }}>
+        <div className="card" style={{ minWidth: 0, height: 480, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexShrink: 0 }}>
             <span className="live-dot" />
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
