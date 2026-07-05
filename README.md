@@ -28,22 +28,49 @@ not a demo of one side of it.
 Live dashboard: watch the agent's balance, its spend/earn feed, and a
 force-directed graph of who it paid and who paid it, in real time.
 
-**For judges — verify it's real:** the `/how-it-works` page has a live table of
-every real wallet and contract address (agent wallet, sources treasury wallet,
-USDC contract, Gateway wallet contract), each linking straight to the
-[Arc testnet explorer](https://testnet.arcscan.app). The Economy page's Live
-Feed, each brief's "Payment receipts" expander in the Library, and the public
-`/network` dashboard all link real transaction hashes the same way — a
-genuine on-chain hash (e.g. a Circle Gateway deposit's approve/deposit
-transactions, or a withdrawal) links out; a Circle Gateway x402 *settlement
-id* (its batched-payment API returns an id, not an on-chain hash, since
-batched payments settle on-chain later) is labeled "settlement" and
-deliberately left unlinked rather than pointing at a URL that wouldn't
-resolve. The Library's "Read"/"Buy" buttons pay through a separate, real
-**demo buyer wallet** (clearly labeled in the UI) rather than the agent's own
-wallet — Circle's Gateway facilitator correctly rejects a wallet paying
-itself as `self_transfer`, confirmed live, so a genuinely independent buyer
-is what actually completes a purchase in this single-agent deployment.
+## Verify it's real
+
+Don't take the pitch above on faith — every claim in it is checkable in under
+a minute, without reading a line of code.
+
+**1. The agent wallet is a real address on a real (test) chain.**
+Open it on the [Arc testnet explorer](https://testnet.arcscan.app/address/0x1fc8b69f563d2f3fe54ca8a693921f53d11eab89)
+— or, once you've run your own `provision:wallet`, your own wallet's address
+is on the `/how-it-works` page, with a one-click copy and explorer link (also
+`GET /api/agent/chain-info`, no auth required).
+
+**2. A brief's paywall is a real HTTP 402, not a fake "upgrade to pro" dialog:**
+
+```bash
+# Grab the latest published brief id, then hit its paywalled endpoint directly
+BRIEF_ID=$(curl -s http://localhost:3001/api/briefs?limit=1 | node -pe 'JSON.parse(require("fs").readFileSync(0))[0].id')
+curl -i http://localhost:3001/api/briefs/$BRIEF_ID
+```
+
+Expect back a real `HTTP/1.1 402 Payment Required` with a JSON body listing
+Circle Gateway's exact payment requirements (asset, amount, `payTo`) — the
+same response the agent's own buy-side code parses in `src/agent/buyer.ts`.
+The `/how-it-works` page has a copy button wired to the same request against
+whatever brief is currently live.
+
+**3. Payments settle for real, on-chain, and you can watch it happen.** The
+Economy page's Live Feed, each brief's "Payment receipts" expander in the
+Library, and the public `/network` dashboard all link real transaction
+hashes to the explorer — a genuine on-chain hash (a Circle Gateway deposit's
+approve/deposit calls, or a withdrawal) links out; a Circle Gateway x402
+*settlement id* (its batched-payment API returns an id, not an on-chain hash,
+since batched payments settle on-chain later — see Known limitations) is
+labeled "settlement" and deliberately left unlinked rather than pointing at
+a URL that wouldn't resolve. Click "Run Now" on the Economy page and watch
+the stepper, the flow graph, and the feed all update from the same real
+cycle in real time.
+
+**4. Purchases in the UI complete for real.** The Library's "Read"/"Buy"
+buttons pay through a separate, real **demo buyer wallet** (clearly labeled
+in the UI, `src/agent/demoBuyer.ts`) rather than the agent's own wallet —
+Circle's Gateway facilitator correctly rejects a wallet paying itself as
+`self_transfer` (confirmed live), so a genuinely independent buyer is what
+actually completes a purchase in this single-agent deployment.
 
 ---
 
@@ -152,6 +179,24 @@ the Deploy screen, and watch it run on the Economy screen.
 | `npm run test:unit` | Pure logic unit tests, no server needed — `priceBrief()`, `scoreSource()`, `formatSigned()`, `dedupeNewById()` |
 | `npm run test:playwright` | Real Chromium checks against a running `dev` server — every page at 1440px/375px (zero console errors, zero overflow), a live triggered cycle (bounded height, no duplicate-key warnings) |
 | `npm run test:all` | Everything above in sequence: lint → typecheck → unit → integration → Playwright |
+| `npm run demo` | Triggers one real cycle and prints a recording walkthrough: page order, real wallet/explorer links, a live 402 curl repro — see Recording a demo below |
+
+## Recording a demo
+
+```bash
+npm run dev     # in one terminal
+npm run demo    # in another, once it's running
+```
+
+`scripts/demo.ts` triggers one real agent cycle (the same `POST
+/api/agent/run` the Economy page's "Run Now" button calls), waits for it to
+finish, then prints the real data it produced (latest brief, spend/earn,
+recent payments) plus a suggested page order for a screen recording — landing
+→ deploy → economy (click "Run Now" live) → library → network → how-it-works
+— along with a direct explorer link for the agent wallet and a copy-pasteable
+curl command that reproduces a live 402 for whatever brief was just
+published. Nothing in the script is scripted content — it's real output from
+a real cycle, meant to be narrated over, not read from.
 
 ## Testing
 
@@ -221,16 +266,38 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
   design — it's excluded from the app build via `.vercelignore`/tsconfig).
 - `src/shared/` — SQLite client, SSE event bus, shared types.
 
-## Circle/Arc/1Claw stack
+## Circle/Arc/1Claw/TestMint stack
 
-| Technology | Used for |
-|---|---|
-| Circle Developer-Controlled Wallets | Agent wallet provisioning (`scripts/provision-wallet.ts`, `src/agent/wallet.ts`) |
-| Circle Gateway (x402 batching) | Both buy-side purchases (`src/agent/buyer.ts`) and sell-side settlement (`src/server/routes/briefs.ts`) |
-| Arc testnet | Settlement network for all USDC transfers |
-| 1Claw vault | Runtime secret storage — Circle/Gemini keys never sit in `process.env` while the agent runs (`src/agent/secrets.ts`) |
-| TestMint | x402-gated testnet USDC faucet for funding the agent wallet |
-| Google Gemini | Brief synthesis (`src/agent/synthesize.ts`) |
+| Technology | Used for | Key file(s) |
+|---|---|---|
+| Circle Developer-Controlled Wallets | Agent + demo-buyer wallet provisioning, real on-chain transfers/withdrawals | `scripts/provision-wallet.ts`, `src/agent/wallet.ts`, `src/agent/withdraw.ts`, `src/agent/demoBuyer.ts` |
+| Circle Gateway (x402 batching) | Buy-side purchases, sell-side settlement, Gateway deposits | `src/agent/buyer.ts`, `src/server/routes/briefs.ts`, `src/agent/gateway.ts` |
+| Arc testnet (chain id `5042002`) | Settlement network for every USDC transfer | `src/shared/chain.ts` |
+| 1Claw vault | Runtime secret storage — Circle/Gemini keys never sit in `process.env` while the agent runs | `src/agent/secrets.ts` |
+| TestMint | x402-gated testnet USDC faucet for funding the agent wallet | manual step, see Setup §6 |
+| Google Gemini | Brief synthesis | `src/agent/synthesize.ts` |
+
+A few representative snippets, so you can see the real API calls without
+opening every file:
+
+```ts
+// src/agent/circleSign.ts — signing a real x402 payment as the agent wallet
+const signer = await getCircleEvmSigner();
+const scheme = new BatchEvmScheme(signer);
+const { x402Version, payload } = await scheme.createPaymentPayload(2, requirements);
+```
+
+```ts
+// src/agent/gateway.ts — a real on-chain Gateway deposit (approve + deposit)
+await executeContractCall(usdcAddress, 'approve(address,uint256)', [GATEWAY_WALLET_ADDRESS, amountAtomic]);
+await executeContractCall(GATEWAY_WALLET_ADDRESS, 'deposit(address,uint256)', [usdcAddress, amountAtomic]);
+```
+
+```ts
+// src/server/routes/briefs.ts — verifying + settling a real x402 payment
+const verifyResult = await facilitator.verify(paymentPayload, requirements);
+const settleResult = await facilitator.settle(paymentPayload, requirements);
+```
 
 ## Known limitations
 
