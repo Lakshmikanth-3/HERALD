@@ -79,7 +79,7 @@ export default function HowItWorksPage() {
           <h2 className="font-display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>The loop</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {LOOP_STEPS.map((step, i) => (
-              <div key={step.key} style={{ display: 'flex', gap: 16 }}>
+              <div key={step.key} className="animate-stagger-in" style={{ display: 'flex', gap: 16, animationDelay: `${i * 80}ms` }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: '50%', flexShrink: 0,

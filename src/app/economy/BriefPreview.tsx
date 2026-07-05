@@ -2,12 +2,19 @@
 
 import type { BriefMetadata } from '../../shared/types'
 import { formatSigned } from '../../lib/format'
+import { useCountUp } from '../../lib/useCountUp'
 
 interface Props {
   brief: BriefMetadata | null
 }
 
 export default function BriefPreview({ brief }: Props) {
+  // Hooks must run unconditionally (before the no-brief early return below),
+  // so they key off brief?.x ?? 0 rather than being skipped entirely.
+  const animatedCost = useCountUp(brief?.productionCost ?? 0)
+  const animatedRevenue = useCountUp(brief?.revenue ?? 0)
+  const animatedNet = useCountUp((brief?.revenue ?? 0) - (brief?.productionCost ?? 0))
+
   if (!brief) {
     return (
       <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
@@ -21,7 +28,6 @@ export default function BriefPreview({ brief }: Props) {
   }
 
   const isProfit = brief.revenue > brief.productionCost
-  const net = brief.revenue - brief.productionCost
 
   function copyX402Link() {
     const url = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/briefs/${brief!.id}`
@@ -36,10 +42,10 @@ export default function BriefPreview({ brief }: Props) {
           LAST BRIEF
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <span className={`badge ${brief.confidence === 'HIGH' ? 'badge-mint' : brief.confidence === 'MEDIUM' ? 'badge-amber' : 'badge-red'}`}>
+          <span className={`badge animate-pop-in ${brief.confidence === 'HIGH' ? 'badge-mint' : brief.confidence === 'MEDIUM' ? 'badge-amber' : 'badge-red'}`}>
             {brief.confidence}
           </span>
-          <span className="badge badge-purple">{brief.sourcesCount} sources</span>
+          <span className="badge badge-purple animate-pop-in" style={{ animationDelay: '60ms' }}>{brief.sourcesCount} sources</span>
         </div>
       </div>
 
@@ -60,11 +66,11 @@ export default function BriefPreview({ brief }: Props) {
 
       {/* Economics */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-        <MicroStat label="Cost" value={`$${brief.productionCost.toFixed(4)}`} color="var(--usdc-blue)" />
-        <MicroStat label="Revenue" value={`$${brief.revenue.toFixed(4)}`} color="var(--earn-mint)" />
+        <MicroStat label="Cost" value={`$${animatedCost.toFixed(4)}`} color="var(--usdc-blue)" />
+        <MicroStat label="Revenue" value={`$${animatedRevenue.toFixed(4)}`} color="var(--earn-mint)" />
         <MicroStat
           label="Net"
-          value={formatSigned(net)}
+          value={formatSigned(animatedNet)}
           color={isProfit ? 'var(--earn-mint)' : 'var(--warn-amber)'}
           tag={isProfit ? 'PROFITABLE' : 'INVESTING'}
         />

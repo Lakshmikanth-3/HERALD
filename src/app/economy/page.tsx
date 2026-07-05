@@ -204,7 +204,7 @@ export default function EconomyPage() {
         {showFirstRun && (
           <FirstRunCard onRun={triggerRun} running={triggering || isRunning} configured={status?.configured ?? false} />
         )}
-        <div className="card" style={{ marginBottom: 16, padding: '10px 16px', overflowX: 'auto' }}>
+        <div className="card animate-stagger-in" style={{ marginBottom: 16, padding: '10px 16px', overflowX: 'auto', animationDelay: '0ms' }}>
           <CycleStepper activeStep={cycleStep} running={isRunning} />
         </div>
       </div>
@@ -212,7 +212,7 @@ export default function EconomyPage() {
       <div className="economy-grid" style={{ paddingTop: 0 }}>
 
         {/* Zone A — Balance */}
-        <div style={{ gridRow: '1', gridColumn: '1', minHeight: 0 }}>
+        <div className="animate-stagger-in" style={{ gridRow: '1', gridColumn: '1', minHeight: 0, animationDelay: '60ms' }}>
           <BalanceCard
             spentToday={balance.spentToday}
             earnedToday={balance.earnedToday}
@@ -224,7 +224,7 @@ export default function EconomyPage() {
         </div>
 
         {/* Zone B — Live Economy Feed */}
-        <div style={{ gridRow: '1', gridColumn: '2', minHeight: 0 }}>
+        <div className="animate-stagger-in" style={{ gridRow: '1', gridColumn: '2', minHeight: 0, animationDelay: '120ms' }}>
           <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -254,12 +254,12 @@ export default function EconomyPage() {
         </div>
 
         {/* Zone C — Agent Flow */}
-        <div style={{ gridRow: '2', gridColumn: '1', minHeight: 0 }}>
+        <div className="animate-stagger-in" style={{ gridRow: '2', gridColumn: '1', minHeight: 0, animationDelay: '180ms' }}>
           <FlowGraph events={allEvents} history={flowHistory} />
         </div>
 
         {/* Zone D — Brief Preview (free metadata — pay in Library to read full) */}
-        <div style={{ gridRow: '2', gridColumn: '2', minHeight: 0 }}>
+        <div className="animate-stagger-in" style={{ gridRow: '2', gridColumn: '2', minHeight: 0, animationDelay: '240ms' }}>
           <BriefPreview brief={latestBrief} />
         </div>
       </div>

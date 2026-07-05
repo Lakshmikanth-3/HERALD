@@ -215,10 +215,32 @@ input[type=range]::-webkit-slider-thumb {
   0%, 100% { r: 18; opacity: 1; }
   50%       { r: 22; opacity: 0.7; }
 }
+@keyframes drawLine {
+  from { stroke-dashoffset: var(--line-length); }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes staggerIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
 
 .animate-slide-in { animation: slideInRight 0.35s ease forwards; }
 .animate-fade-in  { animation: fadeIn 0.3s ease forwards; }
 .animate-pulse-dot { animation: pulse 1.5s infinite; }
+/* Sparkline's dasharray is set to the real, measured path length (never
+   guessed), so a single dash exactly that long draws the whole line solid —
+   the animation only reveals it, it never changes the shape. */
+.animate-draw-line { stroke-dasharray: var(--line-length); animation: drawLine 900ms ease-out forwards; }
+.animate-stagger-in { opacity: 0; animation: staggerIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+/* opacity/transform set directly on the class (not just the keyframe's
+   "from" state) so a delayed pop-in stays invisible for its full
+   animation-delay instead of flashing visible then popping — animation-
+   fill-mode only back-fills once the animation actually starts. */
+.animate-pop-in { opacity: 0; transform: scale(0.85); animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
 
 /* These plain-CSS micro-interactions (mint glow pulse, slide-in, fade-in, the
    live indicator dot, the marquee) don't go through framer-motion's
@@ -226,8 +248,11 @@ input[type=range]::-webkit-slider-thumb {
    query is their equivalent opt-out. */
 @media (prefers-reduced-motion: reduce) {
   .animate-slide-in, .animate-fade-in, .animate-pulse-dot, .live-dot,
-  .glow-pulse-mint, .animate-marquee, .animate-accordion-down, .animate-accordion-up {
+  .glow-pulse-mint, .animate-marquee, .animate-accordion-down, .animate-accordion-up,
+  .animate-draw-line, .animate-stagger-in, .animate-pop-in {
     animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 

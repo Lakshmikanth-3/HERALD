@@ -54,11 +54,11 @@ export default function CycleReports({ refreshKey }: { refreshKey: number }) {
         CYCLE HISTORY ({reports.length})
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {reports.map(r => {
+        {reports.map((r, i) => {
           const stage = STAGE_LABEL[r.stage] ?? { text: r.stage, color: 'var(--text-muted)' }
           const isOpen = expanded === r.id
           return (
-            <div key={r.id} style={{ borderRadius: 8, background: isOpen ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
+            <div key={r.id} className="animate-stagger-in" style={{ borderRadius: 8, background: isOpen ? 'rgba(255,255,255,0.03)' : 'transparent', animationDelay: `${Math.min(i, 10) * 30}ms` }}>
               <button
                 onClick={() => setExpanded(isOpen ? null : r.id)}
                 style={{

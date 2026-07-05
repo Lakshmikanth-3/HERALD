@@ -6,6 +6,7 @@ import SSEListener from '../components/SSEListener'
 import LiveFeed, { buildFeedEntry } from '../economy/LiveFeed'
 import FlowGraph from '../economy/FlowGraph'
 import { addressUrl, shortAddr } from '../../lib/explorer'
+import { useCountUp } from '../../lib/useCountUp'
 import type { EconomyEvent } from '../../shared/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
@@ -82,11 +83,11 @@ export default function NetworkPage() {
 
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
-          <StatTile label="Briefs published" value={stats ? String(stats.briefsPublished) : '—'} color="var(--ai-purple)" />
-          <StatTile label="Sources purchased" value={stats ? String(stats.sourcesPurchased) : '—'} color="var(--usdc-blue)" />
-          <StatTile label="Total spent" value={stats ? `$${stats.totalSpentUsd.toFixed(4)}` : '—'} color="var(--usdc-blue)" />
-          <StatTile label="Total earned" value={stats ? `$${stats.totalEarnedUsd.toFixed(4)}` : '—'} color="var(--earn-mint)" />
-          <StatTile label="Total volume moved" value={stats ? `$${totalVolume.toFixed(4)}` : '—'} color="var(--text-primary)" />
+          <StatTile label="Briefs published" value={stats?.briefsPublished ?? 0} format={n => String(Math.round(n))} color="var(--ai-purple)" delay={0} />
+          <StatTile label="Sources purchased" value={stats?.sourcesPurchased ?? 0} format={n => String(Math.round(n))} color="var(--usdc-blue)" delay={60} />
+          <StatTile label="Total spent" value={stats?.totalSpentUsd ?? 0} format={n => `$${n.toFixed(4)}`} color="var(--usdc-blue)" delay={120} />
+          <StatTile label="Total earned" value={stats?.totalEarnedUsd ?? 0} format={n => `$${n.toFixed(4)}`} color="var(--earn-mint)" delay={180} />
+          <StatTile label="Total volume moved" value={totalVolume} format={n => `$${n.toFixed(4)}`} color="var(--text-primary)" delay={240} />
         </div>
 
         {chainInfo?.agentWalletAddress && (
@@ -112,10 +113,10 @@ export default function NetworkPage() {
             columns in a row to match the tallest one, the FlowGraph's
             canvas inherited that same runaway height, rendering its nodes
             far outside the visible viewport. */}
-        <div style={{ minWidth: 0, height: 480 }}>
+        <div className="animate-stagger-in" style={{ minWidth: 0, height: 480, animationDelay: '300ms' }}>
           <FlowGraph events={allEvents} history={flowHistory} />
         </div>
-        <div className="card" style={{ minWidth: 0, height: 480, display: 'flex', flexDirection: 'column' }}>
+        <div className="card animate-stagger-in" style={{ minWidth: 0, height: 480, display: 'flex', flexDirection: 'column', animationDelay: '360ms' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexShrink: 0 }}>
             <span className="live-dot" />
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -131,11 +132,12 @@ export default function NetworkPage() {
   )
 }
 
-function StatTile({ label, value, color }: { label: string; value: string; color: string }) {
+function StatTile({ label, value, format, color, delay }: { label: string; value: number; format: (n: number) => string; color: string; delay: number }) {
+  const animated = useCountUp(value)
   return (
-    <div className="card" style={{ padding: '14px 16px' }}>
+    <div className="card card-hover animate-stagger-in" style={{ padding: '14px 16px', animationDelay: `${delay}ms` }}>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-      <div className="font-mono" style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
+      <div className="font-mono" style={{ fontSize: 18, fontWeight: 700, color }}>{format(animated)}</div>
     </div>
   )
 }

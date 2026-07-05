@@ -113,11 +113,11 @@ function DeployForm() {
       }}>
         <div style={{ maxWidth: 580, width: '100%' }}>
           {/* Title */}
-          <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+          <div className="animate-stagger-in" style={{ textAlign: 'center', marginBottom: '2.5rem', animationDelay: '0ms' }}>
             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 16 }}>
-              <span className="badge badge-blue">x402</span>
-              <span className="badge badge-mint">Circle Gateway</span>
-              <span className="badge badge-purple">Arc Testnet</span>
+              <span className="badge badge-blue animate-pop-in" style={{ animationDelay: '80ms' }}>x402</span>
+              <span className="badge badge-mint animate-pop-in" style={{ animationDelay: '140ms' }}>Circle Gateway</span>
+              <span className="badge badge-purple animate-pop-in" style={{ animationDelay: '200ms' }}>Arc Testnet</span>
             </div>
             <h1 className="font-display" style={{ fontSize: 38, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.15, marginBottom: 12 }}>
               Deploy your research agent
@@ -129,7 +129,7 @@ function DeployForm() {
           </div>
 
           {/* Form card */}
-          <div className="card" style={{ padding: '2rem' }}>
+          <div className="card animate-stagger-in" style={{ padding: '2rem', animationDelay: '100ms' }}>
             {/* Topic */}
             <div style={{ marginBottom: '1.75rem' }}>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-data)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -228,7 +228,7 @@ function DeployForm() {
           </div>
 
           {/* Stats */}
-          <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
+          <div className="animate-stagger-in" style={{ marginTop: '1.25rem', textAlign: 'center', animationDelay: '180ms' }}>
             <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
               Agent will read{' '}
               <span style={{ color: 'var(--text-data)' }}>~{sourcesPerSession * 14} sources/week</span>

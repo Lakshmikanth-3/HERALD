@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { addressUrl, txUrl, shortAddr, shortTx } from '../../lib/explorer'
 import { formatSigned } from '../../lib/format'
+import { useCountUp } from '../../lib/useCountUp'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -17,6 +18,10 @@ interface Props {
 
 export default function BalanceCard({ spentToday, earnedToday, walletBalance, isRunning, walletAddress, netHistory }: Props) {
   const net = earnedToday - spentToday
+  const animatedBalance = useCountUp(walletBalance)
+  const animatedSpent = useCountUp(spentToday)
+  const animatedEarned = useCountUp(earnedToday)
+  const animatedNet = useCountUp(net)
   const netColor = net >= 0
     ? 'var(--earn-mint)'
     : Math.abs(net) < spentToday * 0.5
@@ -86,7 +91,7 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
       <div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Wallet</div>
         <div className="font-mono" style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          ${walletBalance.toFixed(4)}
+          ${animatedBalance.toFixed(4)}
           <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>USDC</span>
         </div>
         {walletAddress && (
@@ -165,14 +170,14 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
 
       {/* Daily stats */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <StatRow label="Spent today" value={spentToday} color="var(--usdc-blue)" prefix="-" />
-        <StatRow label="Earned today" value={earnedToday} color="var(--earn-mint)" prefix="+" />
+        <StatRow label="Spent today" value={animatedSpent} color="var(--usdc-blue)" prefix="-" />
+        <StatRow label="Earned today" value={animatedEarned} color="var(--earn-mint)" prefix="+" />
 
         {/* Net */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Net today</span>
           <span className="font-mono" style={{ fontSize: 15, fontWeight: 700, color: netColor }}>
-            {formatSigned(net)}
+            {formatSigned(animatedNet)}
           </span>
         </div>
       </div>
@@ -198,7 +203,9 @@ function StatRow({ label, value, color, prefix }: {
 
 // A real-data sparkline of running net balance (earned − spent) over time,
 // built from the same payment history that powers the Live Feed and
-// FlowGraph — never a fabricated trend line.
+// FlowGraph — never a fabricated trend line. Draws itself in on mount/data
+// change rather than just appearing, using the real length of the actual
+// line (not a guessed constant) so the reveal always finishes cleanly.
 function Sparkline({ values }: { values: number[] }) {
   const width = 180
   const height = 36
@@ -210,11 +217,26 @@ function Sparkline({ values }: { values: number[] }) {
   const last = values[values.length - 1]
   const trendColor = last >= 0 ? 'var(--earn-mint)' : 'var(--warn-amber)'
 
+  const lineRef = useRef<SVGPolylineElement>(null)
+  const [dashLength, setDashLength] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (lineRef.current) setDashLength(lineRef.current.getTotalLength())
+  }, [points])
+
   return (
     <div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Net over time</div>
       <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-        <polyline points={points} fill="none" stroke={trendColor} strokeWidth={1.5} />
+        <polyline
+          ref={lineRef}
+          points={points}
+          fill="none"
+          stroke={trendColor}
+          strokeWidth={1.5}
+          className={dashLength ? 'animate-draw-line' : undefined}
+          style={dashLength ? { '--line-length': dashLength } as React.CSSProperties : undefined}
+        />
       </svg>
     </div>
   )

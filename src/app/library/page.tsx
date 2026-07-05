@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import HeraldNav from '../components/HeraldNav'
 import type { Brief } from '../../shared/types'
 import { txUrl, shortTx, isRealTxHash } from '../../lib/explorer'
+import { useCountUp } from '../../lib/useCountUp'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -54,6 +55,7 @@ export default function LibraryPage() {
   const [receipts, setReceipts] = useState<Record<string, Receipt[]>>({})
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
   const [sourcePayments, setSourcePayments] = useState<Record<string, SourcePayment>>({})
+  const totalRevenue = useCountUp(briefs.reduce((s, b) => s + b.revenue, 0))
 
   useEffect(() => {
     async function load() {
@@ -162,7 +164,7 @@ export default function LibraryPage() {
             </h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Total revenue: <span className="font-mono" style={{ color: 'var(--earn-mint)' }}>
-                ${briefs.reduce((s, b) => s + b.revenue, 0).toFixed(4)}
+                ${totalRevenue.toFixed(4)}
               </span>
             </span>
           </div>
@@ -179,13 +181,13 @@ export default function LibraryPage() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {briefs.map(b => {
+            {briefs.map((b, i) => {
               const pl = profitLabel(b)
               const isPurchasing = purchase?.id === b.id
               const isExpanded = expandedReceipts === b.id
               const briefReceipts = receipts[b.id]
               return (
-                <div key={b.id} className="card card-hover">
+                <div key={b.id} className="card card-hover animate-stagger-in" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{b.title}</h3>
@@ -296,10 +298,10 @@ export default function LibraryPage() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {marketplace.map(b => {
+            {marketplace.map((b, i) => {
               const isPurchasing = purchase?.id === b.id
               return (
-                <div key={b.id} className="card card-hover" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                <div key={b.id} className="card card-hover animate-stagger-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, animationDelay: `${Math.min(i, 8) * 50}ms` }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                       <span className="badge badge-blue">${b.priceUsd.toFixed(3)} USDC</span>
