@@ -2,12 +2,12 @@
 
 export type CycleStep = 'discover' | 'score' | 'pay' | 'synthesize' | 'publish'
 
-const STEPS: Array<{ key: CycleStep; label: string }> = [
-  { key: 'discover',   label: 'Discover' },
-  { key: 'score',      label: 'Score' },
-  { key: 'pay',        label: 'Pay' },
-  { key: 'synthesize', label: 'Synthesize' },
-  { key: 'publish',    label: 'Publish' },
+const STEPS: Array<{ key: CycleStep; label: string; icon: string }> = [
+  { key: 'discover',   label: 'Discover',   icon: '🔍' },
+  { key: 'score',      label: 'Score',      icon: '⚖' },
+  { key: 'pay',        label: 'Pay',        icon: '$' },
+  { key: 'synthesize', label: 'Synthesize', icon: '✎' },
+  { key: 'publish',    label: 'Publish',    icon: '◆' },
 ]
 
 export interface CycleSummary {
@@ -28,37 +28,43 @@ export function cycleSummaryMessage(s: CycleSummary): string {
   return `Cycle complete: ${parts.join(' · ')}`
 }
 
-// ── Stepper ──────────────────────────────────────────────────────────────────
-export function CycleStepper({ activeStep, running }: { activeStep: CycleStep | null; running: boolean }) {
+// ── Stepper (hero element) ───────────────────────────────────────────────────
+// Rebuilt as the visual centerpiece of the Economy dashboard: larger nodes
+// with icons, a track that fills as real cycle events advance the active
+// step, and a checkmark pop on each step's completion. Between cycles it
+// shows the previous cycle's real result inline instead of sitting empty.
+export function CycleStepper({ activeStep, running, lastSummary }: { activeStep: CycleStep | null; running: boolean; lastSummary?: CycleSummary | null }) {
   const activeIdx = activeStep ? STEPS.findIndex(s => s.key === activeStep) : -1
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      {STEPS.map((step, i) => {
-        const done = running && activeIdx > i
-        const active = running && activeIdx === i
-        const color = active ? 'var(--earn-mint)' : done ? 'var(--usdc-blue)' : 'var(--text-muted)'
-        return (
-          <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
-                className={active ? 'live-dot' : undefined}
-                style={{
-                  width: 7, height: 7, borderRadius: '50%',
-                  background: done ? 'var(--usdc-blue)' : active ? 'var(--earn-mint)' : 'rgba(255,255,255,0.15)',
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, color, whiteSpace: 'nowrap' }}>
-                {step.label}
-              </span>
+    <div>
+      <div className="stepper-hero">
+        {STEPS.map((step, i) => {
+          const done = running && activeIdx > i
+          const active = running && activeIdx === i
+          const label = active ? 'var(--earn-mint)' : done ? 'var(--usdc-blue)' : 'var(--text-muted)'
+          return (
+            <div key={step.key} style={{ display: 'flex', alignItems: 'flex-start', flex: i < STEPS.length - 1 ? 1 : undefined }}>
+              <div className="stepper-node-wrap">
+                <div className={`stepper-node ${done ? 'done' : ''} ${active ? 'active' : ''}`}>
+                  {done ? <span className="stepper-check">✓</span> : step.icon}
+                </div>
+                <span className="stepper-label" style={{ color: label }}>{step.label}</span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div className={`stepper-track-seg ${done ? 'filled' : ''}`}>
+                  <div className="fill" />
+                </div>
+              )}
             </div>
-            {i < STEPS.length - 1 && (
-              <span style={{ width: 14, height: 1, background: done ? 'var(--usdc-blue)' : 'rgba(255,255,255,0.12)' }} />
-            )}
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+      {!running && lastSummary && (
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+          Last cycle: {cycleSummaryMessage(lastSummary)}
+        </p>
+      )}
     </div>
   )
 }

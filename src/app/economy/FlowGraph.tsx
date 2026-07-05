@@ -35,6 +35,10 @@ interface Props {
 
 const AGENT_NODE: GraphNode = { id: 'herald-agent', type: 'agent', label: 'HERALD', totalUsd: 0 }
 
+function nodeRadius(node: GraphNode): number {
+  return node.type === 'agent' ? 18 : Math.min(6 + node.totalUsd * 1000, 14)
+}
+
 // Applies one event's effect on the graph (node totals + edge activity).
 // Returns the edge key to spawn a particle on, or null for events that don't
 // affect the flow graph (e.g. agent:cycle:start).
@@ -82,8 +86,15 @@ export default function FlowGraph({ events, history }: Props) {
   const stateRef = useRef<GraphState>({ nodes: new Map([['herald-agent', { ...AGENT_NODE }]]), edges: new Map() })
   const animRef = useRef<number>()
   const particlesRef = useRef<Array<{ edgeKey: string; t: number; dir: 'in' | 'out' }>>([])
+  const ringPulsesRef = useRef<Array<{ nodeId: string; start: number }>>([])
   const processedIdsRef = useRef<Set<string>>(new Set())
+  const dashOffsetRef = useRef(0)
   const [hasData, setHasData] = useState(false)
+  const [hover, setHover] = useState<{ node: GraphNode; mouseX: number; mouseY: number } | null>(null)
+  // The draw loop reads hover state via this ref, not the `hover` value
+  // itself — mousemove fires far more often than a component re-render
+  // should tear down and rebuild the whole canvas/rAF/ResizeObserver setup.
+  const hoverRef = useRef<{ node: GraphNode } | null>(null)
 
   // Seed real aggregated totals from DB history — no particles, just the
   // static picture of who's been paid / who's paid so far. Depends on
@@ -143,6 +154,24 @@ export default function FlowGraph({ events, history }: Props) {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let pulse = 0
 
+    function onMouseMove(e: MouseEvent) {
+      const rect = canvas!.getBoundingClientRect()
+      const mx = e.clientX - rect.left
+      const my = e.clientY - rect.top
+      let found: GraphNode | null = null
+      for (const node of stateRef.current.nodes.values()) {
+        if (node.x == null || node.y == null) continue
+        const r = nodeRadius(node) + 6
+        const dx = mx - node.x, dy = my - node.y
+        if (dx * dx + dy * dy <= r * r) { found = node; break }
+      }
+      hoverRef.current = found ? { node: found } : null
+      setHover(found ? { node: found, mouseX: mx, mouseY: my } : null)
+    }
+    function onMouseLeave() { hoverRef.current = null; setHover(null) }
+    canvas.addEventListener('mousemove', onMouseMove)
+    canvas.addEventListener('mouseleave', onMouseLeave)
+
     function draw() {
       const W = canvas!.width
       const H = canvas!.height
@@ -156,48 +185,85 @@ export default function FlowGraph({ events, history }: Props) {
       // Layout: agent center, sources left, buyers right
       const cx = W / 2, cy = H / 2
 
+      // Ambient radial glow behind the HERALD center node, independent of
+      // its own node glow — a soft field the whole graph sits inside.
+      const bgGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(W, H) * 0.55)
+      bgGlow.addColorStop(0, 'rgba(39,117,202,0.08)')
+      bgGlow.addColorStop(1, 'rgba(39,117,202,0)')
+      ctx.fillStyle = bgGlow
+      ctx.fillRect(0, 0, W, H)
+
       nodes.forEach((node) => {
         if (node.type === 'agent') { node.x = cx; node.y = cy; return }
         const peers = nodes.filter(n => n.type === node.type)
         const idx   = peers.indexOf(node)
         const count = peers.length
         if (node.type === 'source') {
-          node.x = cx - W * 0.3
-          node.y = cy - ((count - 1) * 40) / 2 + idx * 40
+          node.x = cx - W * 0.32
+          node.y = cy - ((count - 1) * 42) / 2 + idx * 42
         } else {
-          node.x = cx + W * 0.3
-          node.y = cy - ((count - 1) * 40) / 2 + idx * 40
+          node.x = cx + W * 0.32
+          node.y = cy - ((count - 1) * 42) / 2 + idx * 42
         }
       })
 
       const nodeMap = new Map(nodes.map(n => [n.id, n]))
 
-      // Draw edges
+      if (!reduceMotion) dashOffsetRef.current += 0.35
+
+      // Draw edges — curved (quadratic bezier) so source/buyer fans don't
+      // overlap the agent node in a straight line pile-up; idle edges show
+      // a slowly drifting dash so the graph never reads as frozen even with
+      // no live activity.
       state.edges.forEach((edge) => {
         const src = nodeMap.get(edge.sourceId)
         const tgt = nodeMap.get(edge.targetId)
         if (!src || !tgt || src.x == null || tgt.x == null) return
 
         const age = edge.lastActive ? Date.now() - edge.lastActive : 999999
-        const opacity = age < 2000 ? 0.8 : 0.2
+        const recentlyActive = age < 2000
+        const opacity = recentlyActive ? 0.85 : 0.22
+
+        const mx = (src.x + tgt.x) / 2
+        const my = (src.y! + tgt.y!) / 2
+        const dx = tgt.x - src.x, dy = tgt.y! - src.y!
+        const len = Math.hypot(dx, dy) || 1
+        const nx = -dy / len, ny = dx / len
+        const bend = edge.direction === 'out' ? 26 : -26
+        const ctrlX = mx + nx * bend
+        const ctrlY = my + ny * bend
 
         ctx.beginPath()
-        ctx.moveTo(src.x!, src.y!)
-        ctx.lineTo(tgt.x!, tgt.y!)
+        ctx.moveTo(src.x, src.y!)
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tgt.x, tgt.y!)
         ctx.strokeStyle = edge.direction === 'out'
           ? `rgba(39,117,202,${opacity})`
           : `rgba(77,255,210,${opacity})`
-        ctx.lineWidth = 1
+        ctx.lineWidth = recentlyActive ? 1.5 : 1
+        if (!recentlyActive) {
+          ctx.setLineDash([4, 7])
+          ctx.lineDashOffset = reduceMotion ? 0 : -dashOffsetRef.current
+        } else {
+          ctx.setLineDash([])
+        }
         ctx.stroke()
+        ctx.setLineDash([])
       })
 
-      // Animate particles along edges (skip advancing under reduced motion —
-      // still draws the static graph, just without the moving dots)
-      particlesRef.current = reduceMotion
+      // Animate particles along their edge's curve. On reduced motion the
+      // particle system is skipped entirely — the static graph (nodes,
+      // edges, real totals) still renders, just without motion.
+      const advanced = reduceMotion
         ? []
-        : particlesRef.current
-            .map(p => ({ ...p, t: p.t + 0.015 }))
-            .filter(p => p.t <= 1)
+        : particlesRef.current.map(p => ({ ...p, t: p.t + 0.018 }))
+
+      for (const p of advanced) {
+        if (p.t >= 1) {
+          const edge = state.edges.get(p.edgeKey)
+          if (edge) ringPulsesRef.current.push({ nodeId: edge.targetId, start: Date.now() })
+        }
+      }
+      particlesRef.current = advanced.filter(p => p.t <= 1)
 
       particlesRef.current.forEach(particle => {
         const edge = state.edges.get(particle.edgeKey)
@@ -206,58 +272,93 @@ export default function FlowGraph({ events, history }: Props) {
         const tgt = nodeMap.get(edge.targetId)
         if (!src || !tgt || src.x == null || tgt.x == null) return
 
-        const x = src.x! + (tgt.x! - src.x!) * particle.t
-        const y = src.y! + (tgt.y! - src.y!) * particle.t
-        ctx.beginPath()
-        ctx.arc(x, y, 3, 0, Math.PI * 2)
-        ctx.fillStyle = particle.dir === 'out' ? '#2775CA' : '#4DFFD2'
-        ctx.globalAlpha = 1 - particle.t * 0.5
-        ctx.fill()
+        const mx = (src.x + tgt.x) / 2, my = (src.y! + tgt.y!) / 2
+        const dx = tgt.x - src.x, dy = tgt.y! - src.y!
+        const len = Math.hypot(dx, dy) || 1
+        const nx = -dy / len, ny = dx / len
+        const bend = edge.direction === 'out' ? 26 : -26
+        const ctrlX = mx + nx * bend, ctrlY = my + ny * bend
+        const color = particle.dir === 'out' ? '#2775CA' : '#4DFFD2'
+
+        function pointAt(t: number) {
+          const it = 1 - t
+          const x = it * it * src!.x! + 2 * it * t * ctrlX + t * t * tgt!.x!
+          const y = it * it * src!.y! + 2 * it * t * ctrlY + t * t * tgt!.y!
+          return { x, y }
+        }
+
+        // Short fading trail behind the lead particle.
+        for (let k = 4; k >= 0; k--) {
+          const tt = Math.max(0, particle.t - k * 0.035)
+          const { x, y } = pointAt(tt)
+          ctx.beginPath()
+          ctx.arc(x, y, Math.max(1, 3 - k * 0.5), 0, Math.PI * 2)
+          ctx.fillStyle = color
+          ctx.globalAlpha = (1 - k * 0.22) * (1 - particle.t * 0.4)
+          ctx.fill()
+        }
         ctx.globalAlpha = 1
+      })
+
+      // Ring-pulse on arrival at the destination node.
+      ringPulsesRef.current = ringPulsesRef.current.filter(rp => Date.now() - rp.start < 600)
+      ringPulsesRef.current.forEach(rp => {
+        const node = nodeMap.get(rp.nodeId)
+        if (!node || node.x == null) return
+        const age = (Date.now() - rp.start) / 600
+        const r = nodeRadius(node) + age * 20
+        ctx.beginPath()
+        ctx.arc(node.x, node.y!, r, 0, Math.PI * 2)
+        ctx.strokeStyle = `rgba(255,255,255,${(1 - age) * 0.55})`
+        ctx.lineWidth = 2
+        ctx.stroke()
       })
 
       // Draw nodes
       nodes.forEach(node => {
         if (node.x == null) return
-        let radius: number, color: string, label: string
+        const radius = nodeRadius(node)
+        let color: string, label: string
 
         if (node.type === 'agent') {
-          radius = reduceMotion ? 18 : 18 + Math.sin(pulse) * 3
-          color  = '#2775CA'
-          label  = 'HERALD'
+          color = '#2775CA'
+          label = 'HERALD'
         } else if (node.type === 'source') {
-          radius = Math.min(6 + node.totalUsd * 1000, 14)
-          color  = '#2775CA'
-          label  = node.label
+          color = '#2775CA'
+          label = node.label
         } else {
-          radius = Math.min(6 + node.totalUsd * 1000, 14)
-          color  = '#4DFFD2'
-          label  = node.label
+          color = '#4DFFD2'
+          label = node.label
         }
+        const isHovered = hoverRef.current?.node.id === node.id
+        const drawRadius = node.type === 'agent'
+          ? (reduceMotion ? 18 : 18 + Math.sin(pulse) * 3)
+          : isHovered ? radius + 2 : radius
 
         // Glow
-        const grd = ctx.createRadialGradient(node.x!, node.y!, 0, node.x!, node.y!, radius * 2.5)
-        grd.addColorStop(0, color + '40')
+        const glowMult = node.type === 'agent' ? 3.2 : 2.5
+        const grd = ctx.createRadialGradient(node.x, node.y!, 0, node.x, node.y!, drawRadius * glowMult)
+        grd.addColorStop(0, color + (isHovered ? '60' : '40'))
         grd.addColorStop(1, color + '00')
         ctx.beginPath()
-        ctx.arc(node.x!, node.y!, radius * 2.5, 0, Math.PI * 2)
+        ctx.arc(node.x, node.y!, drawRadius * glowMult, 0, Math.PI * 2)
         ctx.fillStyle = grd
         ctx.fill()
 
         // Circle
         ctx.beginPath()
-        ctx.arc(node.x!, node.y!, radius, 0, Math.PI * 2)
+        ctx.arc(node.x, node.y!, drawRadius, 0, Math.PI * 2)
         ctx.fillStyle = node.type === 'agent' ? color : '#0D1424'
         ctx.fill()
-        ctx.strokeStyle = color
-        ctx.lineWidth = node.type === 'agent' ? 2 : 1.5
+        ctx.strokeStyle = isHovered ? '#FFFFFF' : color
+        ctx.lineWidth = node.type === 'agent' ? 2 : isHovered ? 2 : 1.5
         ctx.stroke()
 
         // Label
         ctx.fillStyle = node.type === 'agent' ? '#fff' : '#94A3B8'
         ctx.font = node.type === 'agent' ? 'bold 10px Inter' : '9px Inter'
         ctx.textAlign = 'center'
-        ctx.fillText(label.slice(0, 12), node.x!, node.y! + radius + 14)
+        ctx.fillText(label.slice(0, 12), node.x, node.y! + drawRadius + 14)
       })
 
       pulse += 0.04
@@ -268,6 +369,8 @@ export default function FlowGraph({ events, history }: Props) {
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current)
       ro.disconnect()
+      canvas.removeEventListener('mousemove', onMouseMove)
+      canvas.removeEventListener('mouseleave', onMouseLeave)
     }
   }, [])
 
@@ -285,7 +388,7 @@ export default function FlowGraph({ events, history }: Props) {
       <div style={{ position: 'relative', flex: 1 }}>
         <canvas
           ref={canvasRef}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', borderRadius: 8, background: '#070B14' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', borderRadius: 8, background: '#070B14', cursor: hover ? 'pointer' : 'default' }}
         />
         {!hasData && (
           <div style={{
@@ -295,6 +398,30 @@ export default function FlowGraph({ events, history }: Props) {
             <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 220 }}>
               Your agent&apos;s economy will appear here after its first cycle.
             </p>
+          </div>
+        )}
+        {hover && (
+          <div style={{
+            position: 'absolute',
+            left: Math.min(hover.mouseX + 12, (canvasRef.current?.clientWidth ?? 300) - 150),
+            top: Math.max(hover.mouseY - 40, 4),
+            background: 'rgba(7,11,20,0.95)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '6px 10px',
+            fontSize: 11,
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            zIndex: 10,
+          }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+              {hover.node.type === 'agent' ? 'HERALD (you)' : hover.node.label}
+            </div>
+            {hover.node.type !== 'agent' && (
+              <div className="font-mono" style={{ color: hover.node.type === 'source' ? 'var(--usdc-blue)' : 'var(--earn-mint)' }}>
+                ${hover.node.totalUsd.toFixed(4)} total
+              </div>
+            )}
           </div>
         )}
       </div>

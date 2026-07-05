@@ -95,15 +95,16 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
           <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>USDC</span>
         </div>
         {walletAddress && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-            <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{shortAddr(walletAddress)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
             <button
+              className="wallet-chip"
               onClick={copyWallet}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', padding: 0 }}
               title="Copy wallet address"
+              style={{ cursor: 'pointer', color: 'var(--text-muted)' }}
             >
-              {copied ? '✓' : '⧉'}
+              {shortAddr(walletAddress)} ⧉
             </button>
+            {copied && <span className="copy-toast">Copied ✓</span>}
             <a
               href={addressUrl(walletAddress)}
               target="_blank" rel="noopener noreferrer"
@@ -214,8 +215,11 @@ function Sparkline({ values }: { values: number[] }) {
   const range = max - min || 1
   const stepX = width / (values.length - 1)
   const points = values.map((v, i) => `${i * stepX},${height - ((v - min) / range) * height}`).join(' ')
+  const areaPoints = `0,${height} ${points} ${width},${height}`
   const last = values[values.length - 1]
   const trendColor = last >= 0 ? 'var(--earn-mint)' : 'var(--warn-amber)'
+  const lastX = (values.length - 1) * stepX
+  const lastY = height - ((last - min) / range) * height
 
   const lineRef = useRef<SVGPolylineElement>(null)
   const [dashLength, setDashLength] = useState<number | null>(null)
@@ -227,7 +231,14 @@ function Sparkline({ values }: { values: number[] }) {
   return (
     <div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Net over time</div>
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }}>
+        <defs>
+          <linearGradient id="sparkline-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={trendColor} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={trendColor} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon points={areaPoints} fill="url(#sparkline-fill)" stroke="none" />
         <polyline
           ref={lineRef}
           points={points}
@@ -237,6 +248,10 @@ function Sparkline({ values }: { values: number[] }) {
           className={dashLength ? 'animate-draw-line' : undefined}
           style={dashLength ? { '--line-length': dashLength } as React.CSSProperties : undefined}
         />
+        {/* Remounts (via `key`) each time a real new datapoint arrives, so
+            the pulse ring plays exactly once per update rather than looping. */}
+        <circle key={points} cx={lastX} cy={lastY} r={9} fill="none" stroke={trendColor} strokeWidth={1.5} className="spark-dot-pulse" />
+        <circle cx={lastX} cy={lastY} r={2.5} fill={trendColor} />
       </svg>
     </div>
   )

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import type { EconomyEvent } from '../../shared/types'
 import { txUrl, shortTx, isRealTxHash } from '../../lib/explorer'
 
@@ -144,7 +145,50 @@ function entryIcon(type: EconomyEvent['type']): { icon: string; color: string; b
   }
 }
 
+// A run of 3+ consecutive skipped-source entries collapses into one summary
+// row so low-value "skip" noise never crowds out real purchases/earns —
+// still built entirely from the real entries, just grouped for display.
+type RenderItem =
+  | { kind: 'entry'; entry: FeedEntry }
+  | { kind: 'skip-group'; id: string; entries: FeedEntry[] }
+
+function groupSkips(entries: FeedEntry[]): RenderItem[] {
+  const out: RenderItem[] = []
+  let run: FeedEntry[] = []
+
+  function flush() {
+    if (run.length >= 3) {
+      out.push({ kind: 'skip-group', id: run[0].id, entries: run })
+    } else {
+      for (const e of run) out.push({ kind: 'entry', entry: e })
+    }
+    run = []
+  }
+
+  for (const entry of entries) {
+    if (entry.type === 'payment:skipped') {
+      run.push(entry)
+    } else {
+      flush()
+      out.push({ kind: 'entry', entry })
+    }
+  }
+  flush()
+  return out
+}
+
 export default function LiveFeed({ entries }: Props) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const items = groupSkips(entries)
+
+  function toggle(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
   return (
     <div style={{
       display: 'flex',
@@ -160,83 +204,127 @@ export default function LiveFeed({ entries }: Props) {
           <span style={{ fontSize: 12 }}>POST /api/agent/run to trigger the first cycle</span>
         </div>
       )}
-      {entries.map((entry, i) => {
-        const { icon, color, bg } = entryIcon(entry.type)
-        return (
-          <div
-            key={entry.id}
-            className={entry.historical ? undefined : 'animate-fade-in'}
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-              padding: '10px 12px',
-              borderRadius: 8,
-              background: !entry.historical && i === 0 ? bg : 'transparent',
-              opacity: entry.historical ? 0.5 : 1,
-              transition: 'background 0.3s',
-            }}
-          >
-            {/* Icon */}
-            <div style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: bg,
-              border: `1px solid ${color}30`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 12,
-              color,
-              flexShrink: 0,
-              marginTop: 1,
-            }}>
-              {icon}
-            </div>
-
-            {/* Content */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>
-                {entry.amount !== undefined && entry.amount > 0 && (
-                  <span className="font-mono" style={{ color, marginRight: 4 }}>
-                    {entry.type === 'payment:received' ? '+' : '-'}${entry.amount.toFixed(4)}
-                  </span>
-                )}
-                {entry.label}
+      {items.map((item, i) => {
+        if (item.kind === 'skip-group') {
+          const scores = item.entries
+            .map(e => e.sublabel.match(/[\d.]+/)?.[0])
+            .filter((s): s is string => !!s)
+          const isOpen = expanded.has(item.id)
+          return (
+            <div key={item.id}>
+              <div
+                className="skip-group-row"
+                onClick={() => toggle(item.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', opacity: 0.6 }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, color: 'var(--text-muted)', flexShrink: 0,
+                }}>
+                  ○
+                </div>
+                <span className="skip-group-label" style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1 }}>
+                  Skipped {item.entries.length} low-relevance source{item.entries.length === 1 ? '' : 's'}
+                  {scores.length > 0 && ` (${Math.min(...scores.map(Number)).toFixed(2)}–${Math.max(...scores.map(Number)).toFixed(2)})`}
+                  {' '}{isOpen ? '▾' : '▸'}
+                </span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {entry.sublabel}
-              </div>
-              {entry.txHash && (
-                isRealTxHash(entry.txHash) ? (
-                  <a
-                    href={txUrl(entry.txHash)}
-                    target="_blank" rel="noopener noreferrer"
-                    className="font-mono"
-                    style={{ fontSize: 11, color: 'var(--usdc-blue)', textDecoration: 'none', marginTop: 2, display: 'inline-block' }}
-                    onClick={e => e.stopPropagation()}
-                  >
-                    tx {shortTx(entry.txHash)} ↗
-                  </a>
-                ) : (
-                  // Circle Gateway settlement ID — real, but not an on-chain
-                  // hash (Gateway batches payments for later settlement), so
-                  // it isn't linked to the block explorer.
-                  <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, display: 'inline-block' }}>
-                    settlement {shortTx(entry.txHash)}
-                  </span>
-                )
+              {isOpen && (
+                <div style={{ paddingLeft: 20 }}>
+                  {item.entries.map(entry => (
+                    <FeedRow key={entry.id} entry={entry} dim />
+                  ))}
+                </div>
               )}
             </div>
-
-            {/* Timestamp */}
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }}>
-              {timeAgo(entry.timestamp)}
-            </div>
-          </div>
-        )
+          )
+        }
+        return <FeedRow key={item.entry.id} entry={item.entry} isNewest={i === 0} />
       })}
+    </div>
+  )
+}
+
+function FeedRow({ entry, isNewest, dim }: { entry: FeedEntry; isNewest?: boolean; dim?: boolean }) {
+  const { icon, color, bg } = entryIcon(entry.type)
+  const isSkip = entry.type === 'payment:skipped' || entry.type === 'discovery:skipped'
+  const isHighlight = entry.type === 'payment:received' || entry.type === 'payment:sent' ||
+    entry.type === 'brief:published' || entry.type === 'discovery:bought'
+  const opacity = entry.historical ? 0.5 : isSkip ? 0.6 : 1
+
+  return (
+    <div
+      className={entry.historical ? undefined : 'animate-feed-flash'}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 10,
+        padding: '10px 12px',
+        borderRadius: 8,
+        background: !entry.historical && isNewest ? bg : 'transparent',
+        opacity: dim ? Math.min(opacity, 0.75) : opacity,
+        transition: 'background 0.3s',
+        '--flash-color': bg,
+      } as React.CSSProperties}
+    >
+      {/* Icon */}
+      <div style={{
+        width: isHighlight ? 30 : 26,
+        height: isHighlight ? 30 : 26,
+        borderRadius: '50%',
+        background: bg,
+        border: `1px solid ${color}30`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: isHighlight ? 13 : 11,
+        color,
+        flexShrink: 0,
+        marginTop: 1,
+      }}>
+        {icon}
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: isHighlight ? 14 : 13, fontWeight: isHighlight ? 700 : 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+          {entry.amount !== undefined && entry.amount > 0 && (
+            <span className="font-mono" style={{ color, marginRight: 4 }}>
+              {entry.type === 'payment:received' ? '+' : '-'}${entry.amount.toFixed(4)}
+            </span>
+          )}
+          {entry.label}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {entry.sublabel}
+        </div>
+        {entry.txHash && (
+          isRealTxHash(entry.txHash) ? (
+            <a
+              href={txUrl(entry.txHash)}
+              target="_blank" rel="noopener noreferrer"
+              className="font-mono"
+              style={{ fontSize: 11, color: 'var(--usdc-blue)', textDecoration: 'none', marginTop: 2, display: 'inline-block' }}
+              onClick={e => e.stopPropagation()}
+            >
+              tx {shortTx(entry.txHash)} ↗
+            </a>
+          ) : (
+            // Circle Gateway settlement ID — real, but not an on-chain
+            // hash (Gateway batches payments for later settlement), so
+            // it isn't linked to the block explorer.
+            <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, display: 'inline-block' }}>
+              settlement {shortTx(entry.txHash)}
+            </span>
+          )
+        )}
+      </div>
+
+      {/* Timestamp */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }}>
+        {timeAgo(entry.timestamp)}
+      </div>
     </div>
   )
 }

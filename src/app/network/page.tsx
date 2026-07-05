@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import HeraldNav from '../components/HeraldNav'
 import SSEListener from '../components/SSEListener'
 import LiveFeed, { buildFeedEntry } from '../economy/LiveFeed'
+import PaymentTicker from '../economy/PaymentTicker'
 import FlowGraph from '../economy/FlowGraph'
 import { addressUrl, shortAddr } from '../../lib/explorer'
 import { useCountUp } from '../../lib/useCountUp'
@@ -67,10 +68,13 @@ export default function NetworkPage() {
     ? stats.totalSpentUsd + stats.totalEarnedUsd + stats.totalSourceSalesUsd
     : 0
 
+  const tickerEvents = useMemo(() => [...flowHistory, ...allEvents], [flowHistory, allEvents])
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="ambient-bg" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <SSEListener onEvent={handleEvent} />
       <HeraldNav />
+      <PaymentTicker events={tickerEvents} />
 
       <div style={{ padding: '20px 20px 0', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
         <h1 className="font-display" style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
@@ -135,7 +139,10 @@ export default function NetworkPage() {
 function StatTile({ label, value, format, color, delay }: { label: string; value: number; format: (n: number) => string; color: string; delay: number }) {
   const animated = useCountUp(value)
   return (
-    <div className="card card-hover animate-stagger-in" style={{ padding: '14px 16px', animationDelay: `${delay}ms` }}>
+    <div
+      className="card card-hover stat-tile-accent animate-stagger-in"
+      style={{ padding: '14px 16px', animationDelay: `${delay}ms`, '--tile-accent': color } as React.CSSProperties}
+    >
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
       <div className="font-mono" style={{ fontSize: 18, fontWeight: 700, color }}>{format(animated)}</div>
     </div>

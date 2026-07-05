@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import HeraldNav from '../components/HeraldNav'
 import SSEListener from '../components/SSEListener'
 import LiveFeed, { buildFeedEntry } from './LiveFeed'
+import PaymentTicker from './PaymentTicker'
 import BalanceCard from './BalanceCard'
 import FlowGraph from './FlowGraph'
 import BriefPreview from './BriefPreview'
@@ -43,6 +44,7 @@ export default function EconomyPage() {
   const [cycleStep, setCycleStep] = useState<CycleStep | null>(null)
   const [cycleActive, setCycleActive] = useState(false)
   const [cycleSummary, setCycleSummary] = useState<CycleSummary | null>(null)
+  const [lastCycleSummary, setLastCycleSummary] = useState<CycleSummary | null>(null)
   const [cycleReportsKey, setCycleReportsKey] = useState(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -155,6 +157,7 @@ export default function EconomyPage() {
         error: d.error as string | undefined,
       }
       setCycleSummary(summary)
+      setLastCycleSummary(summary)
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
       toastTimerRef.current = setTimeout(() => setCycleSummary(null), 8000)
       // A cycle just ended (whatever the outcome) — a new row exists in
@@ -194,18 +197,21 @@ export default function EconomyPage() {
     return series.slice(-30)
   }, [flowHistory, allEvents])
 
+  const tickerEvents = useMemo(() => [...flowHistory, ...allEvents], [flowHistory, allEvents])
+
   return (
     <>
-    <div className="economy-dashboard">
+    <div className="economy-dashboard ambient-bg">
       <SSEListener onEvent={handleEvent} />
       <HeraldNav topic={status?.topic ?? undefined} />
+      <PaymentTicker events={tickerEvents} />
 
       <div style={{ padding: '20px 20px 0' }}>
         {showFirstRun && (
           <FirstRunCard onRun={triggerRun} running={triggering || isRunning} configured={status?.configured ?? false} />
         )}
-        <div className="card animate-stagger-in" style={{ marginBottom: 16, padding: '10px 16px', overflowX: 'auto', animationDelay: '0ms' }}>
-          <CycleStepper activeStep={cycleStep} running={isRunning} />
+        <div className="card animate-stagger-in" style={{ marginBottom: 16, padding: '16px 20px', overflowX: 'auto', animationDelay: '0ms' }}>
+          <CycleStepper activeStep={cycleStep} running={isRunning} lastSummary={lastCycleSummary} />
         </div>
       </div>
 

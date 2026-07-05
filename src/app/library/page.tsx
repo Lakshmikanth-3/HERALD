@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import HeraldNav from '../components/HeraldNav'
 import type { Brief } from '../../shared/types'
 import { txUrl, shortTx, isRealTxHash } from '../../lib/explorer'
@@ -55,6 +55,8 @@ export default function LibraryPage() {
   const [receipts, setReceipts] = useState<Record<string, Receipt[]>>({})
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
   const [sourcePayments, setSourcePayments] = useState<Record<string, SourcePayment>>({})
+  const [justProfitable, setJustProfitable] = useState<Set<string>>(new Set())
+  const prevProfitRef = useRef<Record<string, boolean>>({})
   const totalRevenue = useCountUp(briefs.reduce((s, b) => s + b.revenue, 0))
 
   useEffect(() => {
@@ -65,7 +67,23 @@ export default function LibraryPage() {
           fetch(`${API}/api/marketplace`),
           fetch(`${API}/api/agent/status`),
         ])
-        if (briefsRes.ok)  setBriefs(await briefsRes.json())
+        if (briefsRes.ok) {
+          const fresh: BriefMeta[] = await briefsRes.json()
+          // A brief flipping from not-yet-profitable to profitable (real
+          // revenue crossing real production cost) gets a one-time glow —
+          // detected by diffing against the previous poll, never simulated.
+          const flipped = new Set<string>()
+          for (const b of fresh) {
+            const isProfit = b.revenue - b.productionCost > 0
+            if (prevProfitRef.current[b.id] === false && isProfit) flipped.add(b.id)
+            prevProfitRef.current[b.id] = isProfit
+          }
+          setBriefs(fresh)
+          if (flipped.size > 0) {
+            setJustProfitable(flipped)
+            setTimeout(() => setJustProfitable(new Set()), 1200)
+          }
+        }
         if (marketRes.ok)  setMarketplace(await marketRes.json())
         if (statusRes.ok) {
           const s = await statusRes.json()
@@ -186,8 +204,13 @@ export default function LibraryPage() {
               const isPurchasing = purchase?.id === b.id
               const isExpanded = expandedReceipts === b.id
               const briefReceipts = receipts[b.id]
+              const flipped = justProfitable.has(b.id)
               return (
-                <div key={b.id} className="card card-hover animate-stagger-in" style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
+                <div
+                  key={b.id}
+                  className={`card card-hover animate-stagger-in ${flipped ? 'glow-pulse-mint-once' : ''}`}
+                  style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{b.title}</h3>
@@ -259,13 +282,13 @@ export default function LibraryPage() {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 11, color: pl.color, fontWeight: 700, marginBottom: 4 }}>{pl.text} {net(b) > 0 ? '✓' : ''}</div>
+                        <div className={flipped ? 'animate-pop-in' : undefined} style={{ fontSize: 11, color: pl.color, fontWeight: 700, marginBottom: 4 }}>{pl.text} {net(b) > 0 ? '✓' : ''}</div>
                         <div className="font-mono" style={{ fontSize: 12, color: 'var(--earn-mint)' }}>${b.revenue.toFixed(4)}</div>
                         <div className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>cost ${b.productionCost.toFixed(4)}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{b.purchases} purchase{b.purchases !== 1 ? 's' : ''}</div>
                       </div>
                       <button
-                        className="btn-primary"
+                        className="btn-primary btn-sheen"
                         style={{ fontSize: 12, padding: '7px 14px' }}
                         onClick={() => readBrief(b.id)}
                         disabled={isPurchasing}
@@ -318,7 +341,7 @@ export default function LibraryPage() {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                     <button
-                      className="btn-primary"
+                      className="btn-primary btn-sheen"
                       style={{ fontSize: 13, padding: '10px 18px', whiteSpace: 'nowrap' }}
                       onClick={() => readBrief(b.id)}
                       disabled={isPurchasing}
