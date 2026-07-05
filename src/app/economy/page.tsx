@@ -195,7 +195,8 @@ export default function EconomyPage() {
   }, [flowHistory, allEvents])
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <>
+    <div className="economy-dashboard">
       <SSEListener onEvent={handleEvent} />
       <HeraldNav topic={status?.topic ?? undefined} />
 
@@ -262,14 +263,22 @@ export default function EconomyPage() {
           <BriefPreview brief={latestBrief} />
         </div>
       </div>
-
-      <div style={{ padding: '0 20px 20px' }}>
-        <CycleReports refreshKey={cycleReportsKey} />
-      </div>
-
-      {cycleSummary && (
-        <CycleToast summary={cycleSummary} onDismiss={() => setCycleSummary(null)} />
-      )}
     </div>
+
+    {/* Below the fold, in normal document flow — deliberately outside the
+        fixed-100vh dashboard div above so it can't steal flex space from
+        the Balance/FlowGraph/Feed/LastBrief grid (that regression: with
+        this section as a flex sibling inside a `height: 100vh` column, the
+        grid — the only flexible/shrinkable child — got squeezed to make
+        room for a growing cycle history list instead of the page just
+        scrolling to reveal it). */}
+    <div style={{ padding: '0 20px 20px' }}>
+      <CycleReports refreshKey={cycleReportsKey} />
+    </div>
+
+    {cycleSummary && (
+      <CycleToast summary={cycleSummary} onDismiss={() => setCycleSummary(null)} />
+    )}
+    </>
   )
 }

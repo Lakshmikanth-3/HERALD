@@ -89,6 +89,51 @@ async function main() {
     await context.close();
   }
 
+  // ── Overlap detection ───────────────────────────────────────────────────────
+  // Regression test for a real bug: the Economy page's Cycle History section
+  // was a flex sibling inside a `height: 100vh` column, so on a viewport
+  // where the grid's natural content was taller than 100vh (mobile, where
+  // the grid stacks to 4 full-height cards), the grid overflowed the fixed
+  // box and Cycle History rendered on top of it instead of below it. Neither
+  // the overflow-width check nor the console-error check above would have
+  // caught this — it's a pure visual overlap, not a horizontal scrollbar or
+  // a thrown error. This check would have failed the moment that bug landed.
+  console.log('\n[4] Overlap detection — no two cards visually overlap, 1440px and 375px');
+  for (const width of [1440, 375]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/economy`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(2000);
+
+    const overlaps = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.card')) as HTMLElement[];
+      const rects = cards
+        .map(el => ({ el, rect: el.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.width > 0 && rect.height > 0);
+      const found: string[] = [];
+      for (let i = 0; i < rects.length; i++) {
+        for (let j = i + 1; j < rects.length; j++) {
+          const a = rects[i].rect, b = rects[j].rect;
+          // One rect containing the other's center point (not just a shared
+          // edge) is the actual visual-overlap signature seen in the bug —
+          // adjacent cards that merely touch at a border don't count.
+          const overlapArea = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+                             * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+          const minArea = Math.min(a.width * a.height, b.width * b.height);
+          if (overlapArea > minArea * 0.15) {
+            found.push(`card ${i} and card ${j} overlap by ${(overlapArea / minArea * 100).toFixed(0)}% of the smaller one's area`);
+          }
+        }
+      }
+      return found;
+    });
+
+    if (overlaps.length > 0) fail(`[${width}px] /economy — ${overlaps.length} overlapping card pair(s): ${overlaps[0]}`);
+    else ok(`[${width}px] /economy — no overlapping cards`);
+
+    await context.close();
+  }
+
   // ── Empty-state note ────────────────────────────────────────────────────────
   // Genuinely triggering every empty state (no briefs, no payments, no
   // history) would mean wiping real DB data, which this suite won't do —
@@ -96,7 +141,7 @@ async function main() {
   // screenshot. Instead, verify the guarding conditions exist and are wired
   // correctly by checking the current (populated) state renders the
   // populated branch, not a stale/broken one.
-  console.log('\n[3] Empty-state wiring (structural check, not a from-scratch DB reset)');
+  console.log('\n[5] Empty-state wiring (structural check, not a from-scratch DB reset)');
   {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
     const page = await context.newPage();

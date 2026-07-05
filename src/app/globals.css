@@ -340,6 +340,26 @@ input[type=range]::-webkit-slider-thumb {
   }
 }
 
+/* Desktop: a single-viewport dashboard (nav + stepper + 2x2 grid all fit in
+   100vh, each zone scrolling internally). Mobile: the grid below stacks all
+   4 cards to their full natural height instead of compressing into a 2x2
+   layout — that's taller than one phone screen, so forcing height:100vh
+   here would make it overflow the fixed box and get visually overlapped by
+   whatever comes after it in the page (the Cycle History section) instead
+   of the page just scrolling to reveal it. Auto height + a soft min-height
+   lets mobile flow naturally while desktop keeps the fixed-viewport feel. */
+.economy-dashboard {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 768px) {
+  .economy-dashboard {
+    height: auto;
+    min-height: 100vh;
+  }
+}
+
 .economy-grid {
   flex: 1;
   min-height: 0;
