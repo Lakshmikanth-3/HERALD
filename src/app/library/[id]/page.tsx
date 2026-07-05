@@ -41,6 +41,10 @@ export default function BriefDetailPage() {
   const [justPaidTx, setJustPaidTx] = useState<string | undefined>(undefined)
   const [notFound, setNotFound] = useState(false)
 
+  // Polls like every other data page in the app (Library list, Economy,
+  // Network) — a one-shot fetch on mount would leave purchases/revenue/
+  // receipts stale the moment anyone (another tab, a live cron cycle,
+  // another agent) buys this brief while the page stays open.
   useEffect(() => {
     if (!id) return
     async function load() {
@@ -53,6 +57,8 @@ export default function BriefDetailPage() {
       if (receiptsRes.ok) setReceipts(await receiptsRes.json())
     }
     load()
+    const iv = setInterval(load, 15000)
+    return () => clearInterval(iv)
   }, [id])
 
   // Real per-source payment proof only makes sense once the sources
