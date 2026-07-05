@@ -137,6 +137,7 @@ export default function FlowGraph({ events, history }: Props) {
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
 
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let pulse = 0
 
     function draw() {
@@ -187,10 +188,13 @@ export default function FlowGraph({ events, history }: Props) {
         ctx.stroke()
       })
 
-      // Animate particles along edges
-      particlesRef.current = particlesRef.current
-        .map(p => ({ ...p, t: p.t + 0.015 }))
-        .filter(p => p.t <= 1)
+      // Animate particles along edges (skip advancing under reduced motion —
+      // still draws the static graph, just without the moving dots)
+      particlesRef.current = reduceMotion
+        ? []
+        : particlesRef.current
+            .map(p => ({ ...p, t: p.t + 0.015 }))
+            .filter(p => p.t <= 1)
 
       particlesRef.current.forEach(particle => {
         const edge = state.edges.get(particle.edgeKey)
@@ -215,7 +219,7 @@ export default function FlowGraph({ events, history }: Props) {
         let radius: number, color: string, label: string
 
         if (node.type === 'agent') {
-          radius = 18 + Math.sin(pulse) * 3
+          radius = reduceMotion ? 18 : 18 + Math.sin(pulse) * 3
           color  = '#2775CA'
           label  = 'HERALD'
         } else if (node.type === 'source') {

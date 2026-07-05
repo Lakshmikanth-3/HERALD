@@ -28,6 +28,18 @@ not a demo of one side of it.
 Live dashboard: watch the agent's balance, its spend/earn feed, and a
 force-directed graph of who it paid and who paid it, in real time.
 
+**For judges — verify it's real:** the `/how-it-works` page has a live table of
+every real wallet and contract address (agent wallet, sources treasury wallet,
+USDC contract, Gateway wallet contract), each linking straight to the
+[Arc testnet explorer](https://testnet.arcscan.app). The Economy page's Live
+Feed and each brief's "Payment receipts" expander in the Library link real
+transaction hashes the same way — a genuine on-chain hash (e.g. a Circle
+Gateway deposit's approve/deposit transactions) links out; a Circle Gateway
+x402 *settlement id* (its batched-payment API returns an id, not an on-chain
+hash, since batched payments settle on-chain later) is labeled "settlement"
+and deliberately left unlinked rather than pointing at a URL that wouldn't
+resolve.
+
 ---
 
 ## Prerequisites

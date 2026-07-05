@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import HeraldNav from '../components/HeraldNav'
 import SSEListener from '../components/SSEListener'
 import LiveFeed, { buildFeedEntry } from './LiveFeed'
@@ -17,6 +17,7 @@ interface AgentStatus {
   configured: boolean
   isRunning: boolean
   topic: string | null
+  walletAddress: string | null
   daily: { spentToday: number; earnedToday: number }
 }
 
@@ -170,6 +171,23 @@ export default function EconomyPage() {
   const isRunning = cycleActive || (status?.isRunning ?? false)
   const showFirstRun = historyLoaded && feedEntries.length === 0 && !isRunning
 
+  // Real-data sparkline: running net balance over time, built from the same
+  // payment history that powers the Live Feed and FlowGraph — never a
+  // fabricated trend line.
+  const netHistory = useMemo(() => {
+    const paymentEvents = [...flowHistory, ...allEvents]
+      .filter(e => e.type === 'payment:sent' || e.type === 'payment:received')
+      .sort((a, b) => a.timestamp - b.timestamp)
+    if (paymentEvents.length === 0) return []
+    let running = 0
+    const series = paymentEvents.map(e => {
+      const amt = (e.data.amountUsd as number) ?? 0
+      running += e.type === 'payment:received' ? amt : -amt
+      return running
+    })
+    return series.slice(-30)
+  }, [flowHistory, allEvents])
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <SSEListener onEvent={handleEvent} />
@@ -193,6 +211,8 @@ export default function EconomyPage() {
             earnedToday={balance.earnedToday}
             walletBalance={balance.usdcBalance}
             isRunning={isRunning}
+            walletAddress={status?.walletAddress}
+            netHistory={netHistory}
           />
         </div>
 

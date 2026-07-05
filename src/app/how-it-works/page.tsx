@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import HeraldNav from '../components/HeraldNav'
+import { ARC_EXPLORER, addressUrl, shortAddr } from '../../lib/explorer'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
-const ARC_EXPLORER = 'https://testnet.arcscan.app'
 
 const LOOP_STEPS = [
   { key: 'discover',   label: 'Discover',   detail: 'Pulls candidate sources from RSS/news feeds for your topic.' },
@@ -19,13 +19,25 @@ interface AgentStatus {
   topic: string | null
 }
 
+interface ChainInfo {
+  network: string
+  chainId: number
+  explorerBase: string
+  usdcContractAddress: string | null
+  gatewayWalletContractAddress: string
+  agentWalletAddress: string | null
+  sourcesWalletAddress: string | null
+}
+
 export default function HowItWorksPage() {
   const [status, setStatus] = useState<AgentStatus | null>(null)
+  const [chainInfo, setChainInfo] = useState<ChainInfo | null>(null)
   const [briefId, setBriefId] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`${API}/api/agent/status`).then(r => r.ok ? r.json() : null).then(s => { if (s) setStatus(s) })
+    fetch(`${API}/api/agent/chain-info`).then(r => r.ok ? r.json() : null).then(c => { if (c) setChainInfo(c) })
     fetch(`${API}/api/briefs?limit=1`).then(r => r.ok ? r.json() : []).then(briefs => {
       if (briefs.length > 0) setBriefId(briefs[0].id)
     })
@@ -37,10 +49,16 @@ export default function HowItWorksPage() {
     setTimeout(() => setCopied(null), 1500)
   }
 
-  const wallet = status?.walletAddress
-  const walletShort = wallet ? `${wallet.slice(0, 8)}…${wallet.slice(-6)}` : null
   const curlPath = briefId ? `/api/briefs/${briefId}` : '/api/briefs/:id'
   const curlSnippet = `curl -i ${API}${curlPath}`
+
+  const proofRows: Array<{ label: string; value: string | null; kind: 'address' | 'text' }> = [
+    { label: 'Agent wallet',            value: chainInfo?.agentWalletAddress ?? null,   kind: 'address' },
+    { label: 'Sources treasury wallet', value: chainInfo?.sourcesWalletAddress ?? null, kind: 'address' },
+    { label: 'USDC contract',           value: chainInfo?.usdcContractAddress ?? null,  kind: 'address' },
+    { label: 'Gateway wallet contract', value: chainInfo?.gatewayWalletContractAddress ?? null, kind: 'address' },
+    { label: 'Network',                 value: chainInfo ? `${chainInfo.network} (chain id ${chainInfo.chainId})` : null, kind: 'text' },
+  ]
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -103,59 +121,70 @@ export default function HowItWorksPage() {
 
         {/* ── Verify it's real ─────────────────────────────────────────────── */}
         <section style={{ marginBottom: 44 }}>
-          <h2 className="font-display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Verify it&apos;s real</h2>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-                Agent wallet (Arc testnet)
+          <h2 className="font-display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Verify it&apos;s real</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Every address below is a real Arc testnet wallet or contract — click through to {ARC_EXPLORER.replace('https://', '')}.
+          </p>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0, overflow: 'hidden' }}>
+            {proofRows.map((row, i) => (
+              <div
+                key={row.label}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+                  padding: '14px 18px', borderBottom: i < proofRows.length - 1 ? '1px solid var(--border)' : 'none',
+                }}
+              >
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{row.label}</span>
+                {row.value ? (
+                  row.kind === 'address' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span className="font-mono" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{shortAddr(row.value)}</span>
+                      <button className="btn-ghost" style={{ fontSize: 11, padding: '3px 9px', borderRadius: 6, cursor: 'pointer' }} onClick={() => copy(row.value!, row.label)}>
+                        {copied === row.label ? 'Copied ✓' : 'Copy'}
+                      </button>
+                      <a href={addressUrl(row.value)} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--usdc-blue)', textDecoration: 'none' }}>
+                        View ↗
+                      </a>
+                    </div>
+                  ) : (
+                    <span className="font-mono" style={{ fontSize: 13, color: 'var(--text-primary)' }}>{row.value}</span>
+                  )
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>not configured</span>
+                )}
               </div>
-              {wallet ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <span className="font-mono" style={{ fontSize: 14, color: 'var(--text-primary)' }}>{walletShort}</span>
-                  <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }} onClick={() => copy(wallet, 'wallet')}>
-                    {copied === 'wallet' ? 'Copied ✓' : 'Copy'}
-                  </button>
-                  <a
-                    href={`${ARC_EXPLORER}/address/${wallet}`}
-                    target="_blank" rel="noopener noreferrer"
-                    style={{ fontSize: 13, color: 'var(--usdc-blue)', textDecoration: 'none' }}
-                  >
-                    View on Arc explorer ↗
-                  </a>
-                </div>
-              ) : (
-                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                  No wallet configured yet — <a href="/deploy" style={{ color: 'var(--usdc-blue)' }}>deploy an agent</a> to provision one.
-                </p>
-              )}
-            </div>
+            ))}
+          </div>
 
-            <div style={{ height: 1, background: 'var(--border)' }} />
+          {!chainInfo?.agentWalletAddress && (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>
+              No wallet configured yet — <a href="/deploy" style={{ color: 'var(--usdc-blue)' }}>deploy an agent</a> to provision one.
+            </p>
+          )}
 
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-                Reproduce a real 402 response
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-                {briefId
-                  ? 'This hits one of HERALD’s own published briefs — you’ll get back a real Circle Gateway payment challenge, not a mock.'
-                  : 'No briefs published yet — this is the general shape of the request. Run a cycle from the Economy screen, then reload this page for a live brief id.'}
-              </p>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.3)',
-                border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px',
-              }}>
-                <code className="font-mono" style={{ flex: 1, fontSize: 12, color: 'var(--earn-mint)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
-                  {curlSnippet}
-                </code>
-                <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', flexShrink: 0 }} onClick={() => copy(curlSnippet, 'curl')}>
-                  {copied === 'curl' ? 'Copied ✓' : 'Copy'}
-                </button>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-                Expect <span className="font-mono">HTTP/1.1 402 Payment Required</span> with a JSON body listing the Circle Gateway payment requirements.
-              </p>
+          <div className="card" style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Reproduce a real 402 response
             </div>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+              {briefId
+                ? 'This hits one of HERALD’s own published briefs — you’ll get back a real Circle Gateway payment challenge, not a mock.'
+                : 'No briefs published yet — this is the general shape of the request. Run a cycle from the Economy screen, then reload this page for a live brief id.'}
+            </p>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.3)',
+              border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px',
+            }}>
+              <code className="font-mono" style={{ flex: 1, fontSize: 12, color: 'var(--earn-mint)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+                {curlSnippet}
+              </code>
+              <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', flexShrink: 0 }} onClick={() => copy(curlSnippet, 'curl')}>
+                {copied === 'curl' ? 'Copied ✓' : 'Copy'}
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+              Expect <span className="font-mono">HTTP/1.1 402 Payment Required</span> with a JSON body listing the Circle Gateway payment requirements.
+            </p>
           </div>
         </section>
       </div>

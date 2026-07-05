@@ -164,7 +164,18 @@ router.get('/:id', async (req: Request, res: Response) => {
       source: buyerAddress,
       reason: `Source "${source.title.slice(0, 50)}" purchased (tx: ${settleResult.transaction})`,
       timestamp: Math.floor(Date.now() / 1000),
+      txHash: settleResult.transaction,
     });
+
+    // Standard x402 settlement-response header (base64 JSON) — lets the buyer
+    // (agent/buyer.ts) record the real tx hash against its own 'sent' payment
+    // row, since only the seller's route sees settleResult directly.
+    res.setHeader('X-PAYMENT-RESPONSE', Buffer.from(JSON.stringify({
+      success: true,
+      transaction: settleResult.transaction,
+      network: X402_NETWORK,
+      payer: buyerAddress,
+    })).toString('base64'));
 
     res.type('text/plain').send(source.content);
   } catch (err) {

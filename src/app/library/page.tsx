@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import HeraldNav from '../components/HeraldNav'
 import type { Brief } from '../../shared/types'
+import { txUrl, shortTx, isRealTxHash } from '../../lib/explorer'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
@@ -20,6 +21,14 @@ interface BriefMeta {
   keyFindingTeaser: string
 }
 
+interface Receipt {
+  id: string
+  amountUsd: number
+  buyerAddress?: string
+  timestamp: number
+  txHash?: string
+}
+
 interface PurchaseState {
   id: string
   status: 'pending' | 'paying' | 'error'
@@ -33,6 +42,10 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true)
   const [purchase, setPurchase] = useState<PurchaseState | null>(null)
   const [topic, setTopic] = useState<string | null>(null)
+  const [justPaid, setJustPaid] = useState<{ id: string; txHash?: string } | null>(null)
+  const [expandedReceipts, setExpandedReceipts] = useState<string | null>(null)
+  const [receipts, setReceipts] = useState<Record<string, Receipt[]>>({})
+  const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -61,6 +74,7 @@ export default function LibraryPage() {
   // The server verifies the payment against Circle Gateway before returning content.
   async function readBrief(id: string, priceUsd: number) {
     setPurchase({ id, status: 'pending' })
+    setJustPaid(null)
     try {
       // Step 1: Hit the endpoint to get the 402 challenge
       const challengeRes = await fetch(`${API}/api/briefs/${id}`)
@@ -95,7 +109,19 @@ export default function LibraryPage() {
         })
 
         if (contentRes.ok) {
+          // Standard x402 settlement-response header (base64 JSON) — the real
+          // tx hash for the payment that just happened, shown immediately as
+          // proof rather than requiring a page reload.
+          let txHash: string | undefined
+          const paymentResponseHeader = contentRes.headers.get('x-payment-response')
+          if (paymentResponseHeader) {
+            try {
+              const decoded = JSON.parse(atob(paymentResponseHeader)) as { transaction?: string }
+              txHash = decoded.transaction
+            } catch { /* not fatal — proof link just won't show */ }
+          }
           setOpenBrief(await contentRes.json())
+          setJustPaid({ id, txHash })
           setPurchase(null)
         } else {
           const err = await contentRes.json()
@@ -111,6 +137,31 @@ export default function LibraryPage() {
       }
     } catch (err) {
       setPurchase({ id, status: 'error', error: (err as Error).message })
+    }
+  }
+
+  function copyX402Link(id: string) {
+    navigator.clipboard.writeText(`${API}/api/briefs/${id}`)
+    setCopiedLink(id)
+    setTimeout(() => setCopiedLink(null), 1500)
+  }
+
+  async function toggleReceipts(id: string) {
+    if (expandedReceipts === id) {
+      setExpandedReceipts(null)
+      return
+    }
+    setExpandedReceipts(id)
+    if (!receipts[id]) {
+      try {
+        const res = await fetch(`${API}/api/briefs/${id}/receipts`)
+        if (res.ok) {
+          const data = await res.json()
+          setReceipts(prev => ({ ...prev, [id]: data }))
+        }
+      } catch {
+        // Leave unset — the expander will just show nothing to fetch again next toggle
+      }
     }
   }
 
@@ -155,23 +206,77 @@ export default function LibraryPage() {
             {briefs.map(b => {
               const pl = profitLabel(b)
               const isPurchasing = purchase?.id === b.id
+              const isExpanded = expandedReceipts === b.id
+              const briefReceipts = receipts[b.id]
               return (
-                <div key={b.id} className="card card-hover" style={{ cursor: 'pointer' }}>
+                <div key={b.id} className="card card-hover">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                      <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{b.title}</h3>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                         <span className={`badge ${b.confidence === 'HIGH' ? 'badge-mint' : b.confidence === 'MEDIUM' ? 'badge-amber' : 'badge-red'}`}>
                           {b.confidence}
                         </span>
                         <span className="badge badge-purple">{b.sourcesCount} sources</span>
                         <span className="badge badge-blue">${b.priceUsd.toFixed(3)}</span>
                       </div>
-                      <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{b.title}</h3>
                       <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>{b.keyFindingTeaser}</p>
                       {isPurchasing && purchase?.status === 'error' && (
                         <p style={{ fontSize: 12, color: 'var(--danger-red, #ef4444)', marginTop: 6 }}>
                           ✗ {purchase.error}
                         </p>
+                      )}
+                      {justPaid?.id === b.id && (
+                        <p style={{ fontSize: 12, color: 'var(--earn-mint)', marginTop: 6 }}>
+                          ✓ Paid via real x402{justPaid.txHash && (
+                            isRealTxHash(justPaid.txHash) ? (
+                              <> — <a href={txUrl(justPaid.txHash)} target="_blank" rel="noopener noreferrer" className="font-mono" style={{ color: 'var(--earn-mint)' }}>
+                                tx {shortTx(justPaid.txHash)} ↗
+                              </a></>
+                            ) : (
+                              <> — <span className="font-mono">settlement {shortTx(justPaid.txHash)}</span></>
+                            )
+                          )}
+                        </p>
+                      )}
+                      <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
+                        <button
+                          onClick={() => copyX402Link(b.id)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}
+                        >
+                          {copiedLink === b.id ? 'Copied ✓' : 'Copy x402 link'}
+                        </button>
+                        <button
+                          onClick={() => toggleReceipts(b.id)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}
+                        >
+                          {isExpanded ? 'Hide receipts ▲' : `Payment receipts (${b.purchases}) ▾`}
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {briefReceipts === undefined && (
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading receipts…</span>
+                          )}
+                          {briefReceipts?.length === 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No purchases yet.</span>
+                          )}
+                          {briefReceipts?.map(r => (
+                            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                              <span className="font-mono" style={{ color: 'var(--earn-mint)' }}>+${r.amountUsd.toFixed(4)}</span>
+                              <span style={{ color: 'var(--text-muted)' }}>{new Date(r.timestamp * 1000).toLocaleString()}</span>
+                              {r.txHash && isRealTxHash(r.txHash) ? (
+                                <a href={txUrl(r.txHash)} target="_blank" rel="noopener noreferrer" className="font-mono" style={{ color: 'var(--usdc-blue)', textDecoration: 'none' }}>
+                                  tx {shortTx(r.txHash)} ↗
+                                </a>
+                              ) : r.txHash ? (
+                                <span className="font-mono" style={{ color: 'var(--text-muted)' }}>settlement {shortTx(r.txHash)}</span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)' }}>—</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>

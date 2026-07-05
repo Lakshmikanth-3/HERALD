@@ -21,6 +21,7 @@ import { getRecentPayments, getDailyBalance, getConfig, insertPayment, getFeedHi
 import { emit, eventBus } from '../../shared/events';
 import type { EconomyEvent } from '../../shared/types';
 import { v4 as uuidv4 } from 'uuid';
+import { ARC_TESTNET_CHAIN_ID, X402_NETWORK, GATEWAY_WALLET_ADDRESS, getUsdcTokenAddress } from '../../shared/chain';
 
 const router = Router();
 
@@ -38,6 +39,28 @@ router.get('/status', (req: Request, res: Response) => {
     agentId: process.env.ONECLAW_AGENT_ID ?? null,
     walletAddress: process.env.HERALD_WALLET_ADDRESS ?? null,
     daily,
+  });
+});
+
+// GET /api/agent/chain-info — public, non-secret contract + wallet addresses,
+// for the UI's "verify it's real" links (Arc testnet explorer). None of this
+// is sensitive: wallet addresses and contract addresses are public on-chain
+// data, not credentials.
+router.get('/chain-info', (req: Request, res: Response) => {
+  let usdcAddress: string | null = null;
+  try {
+    usdcAddress = getUsdcTokenAddress();
+  } catch {
+    // Not configured yet — omit rather than fail the whole response.
+  }
+  res.json({
+    network: X402_NETWORK,
+    chainId: ARC_TESTNET_CHAIN_ID,
+    explorerBase: 'https://testnet.arcscan.app',
+    usdcContractAddress: usdcAddress,
+    gatewayWalletContractAddress: GATEWAY_WALLET_ADDRESS,
+    agentWalletAddress: process.env.HERALD_WALLET_ADDRESS ?? null,
+    sourcesWalletAddress: process.env.HERALD_SOURCES_WALLET_ADDRESS ?? null,
   });
 });
 
@@ -187,6 +210,26 @@ router.post('/deposit', async (req: Request, res: Response) => {
 
   try {
     const result = await depositToGateway(amountUsd);
+
+    // depositTxHash is a real EVM tx hash (unlike Gateway's x402 settle()
+    // response, which returns a batch/settlement id) — persist and emit it
+    // so the UI can link straight to a verifiable on-chain transaction.
+    if (result.depositTxHash) {
+      insertPayment({
+        id: uuidv4(),
+        type: 'deposit',
+        amountUsd,
+        reason: `Deposited $${amountUsd.toFixed(2)} USDC into Circle Gateway (approve tx: ${result.approvalTxHash ?? 'n/a'})`,
+        timestamp: Math.floor(Date.now() / 1000),
+        txHash: result.depositTxHash,
+      });
+      emit('agent:deposit', {
+        amountUsd,
+        depositTxHash: result.depositTxHash,
+        approvalTxHash: result.approvalTxHash,
+      });
+    }
+
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

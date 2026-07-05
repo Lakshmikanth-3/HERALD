@@ -1,6 +1,7 @@
 'use client'
 
 import type { EconomyEvent } from '../../shared/types'
+import { txUrl, shortTx, isRealTxHash } from '../../lib/explorer'
 
 interface FeedEntry {
   id: string
@@ -10,6 +11,7 @@ interface FeedEntry {
   amount?: number
   timestamp: number
   historical?: boolean
+  txHash?: string
 }
 
 interface Props {
@@ -31,6 +33,7 @@ export function buildFeedEntry(event: EconomyEvent): FeedEntry | null {
         sublabel: (d.title as string)?.slice(0, 70) ?? 'Source fetched',
         amount: amt,
         timestamp: event.timestamp,
+        txHash: d.txHash as string | undefined,
       }
     }
     case 'payment:received': {
@@ -42,6 +45,7 @@ export function buildFeedEntry(event: EconomyEvent): FeedEntry | null {
         sublabel: `Brief purchased: "${(d.briefTitle as string)?.slice(0, 55) ?? d.briefId}"`,
         amount: amt,
         timestamp: event.timestamp,
+        txHash: (d.txHash as string | undefined) ?? (d.transaction as string | undefined),
       }
     }
     case 'payment:skipped':
@@ -76,6 +80,15 @@ export function buildFeedEntry(event: EconomyEvent): FeedEntry | null {
         sublabel: `Required: $${(d.required as number)?.toFixed(4)}`,
         timestamp: event.timestamp,
       }
+    case 'agent:deposit':
+      return {
+        id: event.id,
+        type: event.type,
+        label: `Deposited $${(d.amountUsd as number)?.toFixed(2)} into Circle Gateway`,
+        sublabel: 'Real on-chain approve + deposit',
+        timestamp: event.timestamp,
+        txHash: d.depositTxHash as string | undefined,
+      }
     default:
       return null
   }
@@ -95,6 +108,7 @@ function entryIcon(type: EconomyEvent['type']): { icon: string; color: string; b
     case 'payment:skipped':   return { icon: '○', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.04)' }
     case 'brief:published':   return { icon: '◆', color: 'var(--ai-purple)',  bg: 'rgba(167,139,250,0.12)' }
     case 'agent:low-balance': return { icon: '!', color: 'var(--warn-amber)', bg: 'rgba(245,158,11,0.12)' }
+    case 'agent:deposit':     return { icon: '⇊', color: 'var(--usdc-blue)',  bg: 'var(--usdc-blue-dim, rgba(39,117,202,0.12))' }
     default:                  return { icon: '·', color: 'var(--text-muted)', bg: 'transparent' }
   }
 }
@@ -163,6 +177,26 @@ export default function LiveFeed({ entries }: Props) {
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {entry.sublabel}
               </div>
+              {entry.txHash && (
+                isRealTxHash(entry.txHash) ? (
+                  <a
+                    href={txUrl(entry.txHash)}
+                    target="_blank" rel="noopener noreferrer"
+                    className="font-mono"
+                    style={{ fontSize: 11, color: 'var(--usdc-blue)', textDecoration: 'none', marginTop: 2, display: 'inline-block' }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    tx {shortTx(entry.txHash)} ↗
+                  </a>
+                ) : (
+                  // Circle Gateway settlement ID — real, but not an on-chain
+                  // hash (Gateway batches payments for later settlement), so
+                  // it isn't linked to the block explorer.
+                  <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, display: 'inline-block' }}>
+                    settlement {shortTx(entry.txHash)}
+                  </span>
+                )
+              )}
             </div>
 
             {/* Timestamp */}

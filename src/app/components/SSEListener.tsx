@@ -29,6 +29,7 @@ export default function SSEListener({ onEvent }: Props) {
       'agent:cycle:start',
       'agent:cycle:end',
       'agent:low-balance',
+      'agent:deposit',
     ]
 
     eventTypes.forEach(type => {

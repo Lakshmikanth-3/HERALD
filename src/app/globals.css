@@ -220,6 +220,17 @@ input[type=range]::-webkit-slider-thumb {
 .animate-fade-in  { animation: fadeIn 0.3s ease forwards; }
 .animate-pulse-dot { animation: pulse 1.5s infinite; }
 
+/* These plain-CSS micro-interactions (mint glow pulse, slide-in, fade-in, the
+   live indicator dot, the marquee) don't go through framer-motion's
+   useSafeReducedMotion hook the landing page components use — this media
+   query is their equivalent opt-out. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in, .animate-fade-in, .animate-pulse-dot, .live-dot,
+  .glow-pulse-mint, .animate-marquee, .animate-accordion-down, .animate-accordion-up {
+    animation: none !important;
+  }
+}
+
 /* ── Nav ──────────────────────────────────────────────────────────────────── */
 .nav {
   display: flex;

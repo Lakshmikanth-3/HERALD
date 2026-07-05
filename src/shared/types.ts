@@ -27,7 +27,9 @@ export interface PaymentRecord {
   id: string;
   // 'source_sale' = revenue to the sources treasury (a separate wallet/actor
   // from the agent's own wallet) — excluded from the agent's own daily P&L.
-  type: 'sent' | 'received' | 'skipped' | 'source_sale';
+  // 'deposit' = a real on-chain Circle Gateway deposit (approve + deposit),
+  // not a purchase — also excluded from getDailyBalance's spent/earned sums.
+  type: 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit';
   url?: string;
   briefId?: string;
   amountUsd: number;
@@ -35,6 +37,10 @@ export interface PaymentRecord {
   source?: string;         // buyer agent ID or address
   reason: string;
   timestamp: number;
+  // Real on-chain settlement tx hash/id from Circle's Gateway facilitator
+  // (settleResult.transaction), when available — lets the UI link straight
+  // to the Arc testnet explorer as verifiable proof of payment.
+  txHash?: string;
 }
 
 // A genuine, originally-authored piece of content HERALD hosts and charges
@@ -94,7 +100,7 @@ export interface AgentBalance {
 
 export interface EconomyEvent {
   id: string;
-  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:cycle:start' | 'agent:cycle:end' | 'agent:low-balance';
+  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:cycle:start' | 'agent:cycle:end' | 'agent:low-balance' | 'agent:deposit';
   data: Record<string, unknown>;
   timestamp: number;
 }

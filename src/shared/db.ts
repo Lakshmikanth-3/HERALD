@@ -81,6 +81,14 @@ function migrate(db: Database.Database) {
       purchases INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  // tx_hash was added after the initial payments table — SQLite has no
+  // "ADD COLUMN IF NOT EXISTS", so guard the ALTER with a table_info check
+  // instead of a blind try/catch (which would also swallow real errors).
+  const paymentsCols = db.prepare(`PRAGMA table_info(payments)`).all() as Array<{ name: string }>;
+  if (!paymentsCols.some(c => c.name === 'tx_hash')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN tx_hash TEXT`);
+  }
 }
 
 // ── Agent Config ──────────────────────────────────────────────────────────────
@@ -164,12 +172,12 @@ function rowToBrief(row: Record<string, unknown>): Brief {
 export function insertPayment(payment: PaymentRecord): void {
   const db = getDb();
   db.prepare(`
-    INSERT INTO payments (id, type, url, brief_id, amount_usd, destination, source, reason, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO payments (id, type, url, brief_id, amount_usd, destination, source, reason, timestamp, tx_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     payment.id, payment.type, payment.url ?? null, payment.briefId ?? null,
     payment.amountUsd, payment.destination ?? null, payment.source ?? null,
-    payment.reason, payment.timestamp
+    payment.reason, payment.timestamp, payment.txHash ?? null
   );
 }
 
@@ -178,7 +186,7 @@ export function getRecentPayments(limit = 50): PaymentRecord[] {
   const rows = db.prepare('SELECT * FROM payments ORDER BY timestamp DESC LIMIT ?').all(limit) as Record<string, unknown>[];
   return rows.map(row => ({
     id: row.id as string,
-    type: row.type as 'sent' | 'received' | 'skipped',
+    type: row.type as 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit',
     url: row.url as string | undefined,
     briefId: row.brief_id as string | undefined,
     amountUsd: row.amount_usd as number,
@@ -186,6 +194,29 @@ export function getRecentPayments(limit = 50): PaymentRecord[] {
     source: row.source as string | undefined,
     reason: row.reason as string,
     timestamp: row.timestamp as number,
+    txHash: row.tx_hash as string | undefined,
+  }));
+}
+
+// Real payment receipts for one specific brief — who bought it, for how much,
+// and the real on-chain settlement tx hash, so a brief's buyers are provable
+// rather than just a purchases counter.
+export function getBriefReceipts(briefId: string): PaymentRecord[] {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT * FROM payments WHERE type = 'received' AND brief_id = ? ORDER BY timestamp DESC`
+  ).all(briefId) as Record<string, unknown>[];
+  return rows.map(row => ({
+    id: row.id as string,
+    type: row.type as 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit',
+    url: row.url as string | undefined,
+    briefId: row.brief_id as string | undefined,
+    amountUsd: row.amount_usd as number,
+    destination: row.destination as string | undefined,
+    source: row.source as string | undefined,
+    reason: row.reason as string,
+    timestamp: row.timestamp as number,
+    txHash: row.tx_hash as string | undefined,
   }));
 }
 
@@ -205,7 +236,7 @@ export function getDailyBalance(): { spentToday: number; earnedToday: number } {
 // straight into the same event-processing code paths as live SSE events.
 export interface FeedHistoryItem {
   id: string;
-  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published';
+  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:deposit';
   data: Record<string, unknown>;
   timestamp: number; // ms, to match EconomyEvent.timestamp (Date.now())
 }
@@ -213,7 +244,7 @@ export interface FeedHistoryItem {
 export function getFeedHistory(limit = 50): FeedHistoryItem[] {
   const db = getDb();
   const paymentRows = db.prepare(
-    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'skipped') ORDER BY timestamp DESC LIMIT ?`
+    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'skipped', 'deposit') ORDER BY timestamp DESC LIMIT ?`
   ).all(limit) as Record<string, unknown>[];
   const briefRows = db.prepare(
     `SELECT * FROM briefs ORDER BY published_at DESC LIMIT ?`
@@ -222,8 +253,20 @@ export function getFeedHistory(limit = 50): FeedHistoryItem[] {
   const items: FeedHistoryItem[] = [];
 
   for (const p of paymentRows) {
-    const type = p.type as 'sent' | 'received' | 'skipped';
+    const type = p.type as 'sent' | 'received' | 'skipped' | 'deposit';
     const timestamp = (p.timestamp as number) * 1000;
+    if (type === 'deposit') {
+      items.push({
+        id: p.id as string,
+        type: 'agent:deposit',
+        timestamp,
+        data: {
+          amountUsd: p.amount_usd,
+          depositTxHash: p.tx_hash,
+        },
+      });
+      continue;
+    }
     if (type === 'sent') {
       items.push({
         id: p.id as string,
@@ -235,6 +278,7 @@ export function getFeedHistory(limit = 50): FeedHistoryItem[] {
           title: p.reason,
           amountUsd: p.amount_usd,
           wasX402: (p.amount_usd as number) > 0,
+          txHash: p.tx_hash,
         },
       });
     } else if (type === 'received') {
@@ -247,6 +291,7 @@ export function getFeedHistory(limit = 50): FeedHistoryItem[] {
           briefTitle: p.reason,
           amountUsd: p.amount_usd,
           buyerAddress: p.source,
+          txHash: p.tx_hash,
         },
       });
     } else {

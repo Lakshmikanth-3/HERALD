@@ -138,6 +138,21 @@ export async function fetchSource(
 
       const content = await payResponse.text();
 
+      // Standard x402 settlement-response header (base64 JSON) set by the
+      // seller (server/routes/sources.ts) — the only place that actually
+      // calls facilitator.settle() and sees the real tx hash. Parsed here so
+      // the buy side can show the same proof-of-payment the seller has.
+      let txHash: string | undefined;
+      const paymentResponseHeader = payResponse.headers.get('x-payment-response');
+      if (paymentResponseHeader) {
+        try {
+          const decoded = JSON.parse(Buffer.from(paymentResponseHeader, 'base64').toString('utf-8')) as { transaction?: string };
+          txHash = decoded.transaction;
+        } catch {
+          // Non-HERALD x402 seller with a differently-shaped header — ignore, not fatal.
+        }
+      }
+
       insertPayment({
         id: uuidv4(),
         type: 'sent',
@@ -146,6 +161,7 @@ export async function fetchSource(
         destination: source.domain,
         reason: `x402 paid for: "${source.title.slice(0, 60)}"`,
         timestamp: Math.floor(Date.now() / 1000),
+        txHash,
       });
       markSourceSeen(source.url, payAmount);
 
@@ -155,6 +171,7 @@ export async function fetchSource(
         title: source.title.slice(0, 80),
         amountUsd: payAmount,
         wasX402: true,
+        txHash,
       });
 
       return { url: source.url, title: source.title, content: stripHtml(content).slice(0, 5000), paidUsd: payAmount, wasX402: true };

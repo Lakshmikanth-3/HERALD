@@ -12,7 +12,7 @@
 
 import { Router, Request, Response } from 'express';
 import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server';
-import { getAllBriefs, getBrief, incrementBriefRevenue, insertPayment } from '../../shared/db';
+import { getAllBriefs, getBrief, incrementBriefRevenue, insertPayment, getBriefReceipts } from '../../shared/db';
 import { emit } from '../../shared/events';
 import {
   X402_NETWORK,
@@ -82,6 +82,23 @@ router.get('/:id/preview', (req: Request, res: Response) => {
     sourcesCount: brief.sources.length,
     productionCost: brief.productionCost,
   });
+});
+
+// GET /api/briefs/:id/receipts — real payment receipts for this brief: who
+// bought it, for how much, and the real settlement tx hash. Public/free —
+// this is proof-of-payment metadata, not the paid content itself.
+router.get('/:id/receipts', (req: Request, res: Response) => {
+  const briefId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const brief = getBrief(briefId as string);
+  if (!brief) { res.status(404).json({ error: 'Brief not found' }); return; }
+  const receipts = getBriefReceipts(briefId as string).map(p => ({
+    id: p.id,
+    amountUsd: p.amountUsd,
+    buyerAddress: p.source,
+    timestamp: p.timestamp,
+    txHash: p.txHash,
+  }));
+  res.json(receipts);
 });
 
 function buildPaymentRequirements(priceUsd: number, payTo: string): PaymentRequirements {
@@ -184,6 +201,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       source: buyerAddress,
       reason: `Brief "${brief.title.slice(0, 50)}" purchased (tx: ${settleResult.transaction})`,
       timestamp: Math.floor(Date.now() / 1000),
+      txHash: settleResult.transaction,
     });
 
     emit('payment:received', {
@@ -192,7 +210,18 @@ router.get('/:id', async (req: Request, res: Response) => {
       amountUsd: brief.priceUsd,
       buyerAddress,
       transaction: settleResult.transaction,
+      txHash: settleResult.transaction,
     });
+
+    // Standard x402 settlement-response header (base64 JSON) so whoever paid
+    // — a human clicking "Read" in the Library, or another agent's buyer.ts —
+    // gets the real tx hash back immediately, without a second round trip.
+    res.setHeader('X-PAYMENT-RESPONSE', Buffer.from(JSON.stringify({
+      success: true,
+      transaction: settleResult.transaction,
+      network: X402_NETWORK,
+      payer: buyerAddress,
+    })).toString('base64'));
 
     res.json(brief);
   } catch (err) {
