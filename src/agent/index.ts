@@ -9,9 +9,10 @@ import { fetchSource } from './buyer';
 import { synthesize } from './synthesize';
 import { publishBrief } from './publish';
 import { checkSufficientBalance } from './wallet';
-import { wasSeenRecently, getConfig, getDailyBalance } from '../shared/db';
+import { wasSeenRecently, getConfig, getDailyBalance, insertPayment } from '../shared/db';
 import { emit } from '../shared/events';
 import type { FetchedSource } from './buyer';
+import { v4 as uuidv4 } from 'uuid';
 
 let isRunning = false;
 
@@ -36,7 +37,6 @@ export async function runAgentCycle(): Promise<void> {
     // Load agent config from database
     const topic = getConfig('topic');
     const weeklyBudget = parseFloat(getConfig('weeklyBudget') ?? '3.00');
-    const briefPrice = parseFloat(getConfig('briefPrice') ?? '0.05');
 
     if (!topic) {
       console.log('[agent] No topic configured — waiting for deployment.');
@@ -71,15 +71,26 @@ export async function runAgentCycle(): Promise<void> {
     const toSkip = scoredSources.filter(s => !s.willPay);
 
     console.log(`[agent] Scoring: ${toPay.length} to fetch, ${toSkip.length} below threshold (${PAY_THRESHOLD})`);
+    emit('agent:cycle:start', { stage: 'scoring', topic, sourcesCount: scoredSources.length, toPayCount: toPay.length, toSkipCount: toSkip.length });
 
-    // Emit skipped sources to live feed
+    // Emit skipped sources to live feed (and persist so the feed history survives a restart)
     for (const s of toSkip.slice(0, 5)) {
+      const reason = `Low relevance score: ${s.relevanceScore.toFixed(2)}`;
       emit('payment:skipped', {
         url: s.url,
         domain: s.domain,
         title: s.title.slice(0, 80),
-        reason: `Low relevance score: ${s.relevanceScore.toFixed(2)}`,
+        reason,
         score: s.relevanceScore,
+      });
+      insertPayment({
+        id: uuidv4(),
+        type: 'skipped',
+        url: s.url,
+        amountUsd: 0,
+        destination: s.domain,
+        reason,
+        timestamp: Math.floor(Date.now() / 1000),
       });
     }
 

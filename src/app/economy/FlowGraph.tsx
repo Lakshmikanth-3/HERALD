@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { EconomyEvent } from '../../shared/types'
 
 interface GraphNode {
@@ -29,52 +29,98 @@ interface GraphState {
 
 interface Props {
   events: EconomyEvent[]
+  history?: EconomyEvent[]
 }
 
 const AGENT_NODE: GraphNode = { id: 'herald-agent', type: 'agent', label: 'HERALD', totalUsd: 0 }
 
-export default function FlowGraph({ events }: Props) {
+// Applies one event's effect on the graph (node totals + edge activity).
+// Returns the edge key to spawn a particle on, or null for events that don't
+// affect the flow graph (e.g. agent:cycle:start).
+function applyEventToState(state: GraphState, event: EconomyEvent, activate: boolean): string | null {
+  const d = event.data as Record<string, unknown>
+
+  if (event.type === 'payment:sent') {
+    const domain = (d.domain ?? d.url ?? 'source') as string
+    const id = `source:${domain}`
+    const existing = state.nodes.get(id)
+    state.nodes.set(id, {
+      id, type: 'source', label: domain,
+      totalUsd: (existing?.totalUsd ?? 0) + ((d.amountUsd as number) ?? 0),
+    })
+    const edgeKey = `${id}→herald-agent`
+    state.edges.set(edgeKey, {
+      sourceId: id, targetId: 'herald-agent', active: true,
+      lastActive: activate ? Date.now() : undefined, direction: 'out',
+    })
+    return edgeKey
+  }
+
+  if (event.type === 'payment:received') {
+    const buyerAddr = (d.buyerAddress ?? 'buyer') as string
+    const shortAddr = buyerAddr.length > 8 ? buyerAddr.slice(0, 6) + '…' : buyerAddr
+    const id = `buyer:${buyerAddr}`
+    const existing = state.nodes.get(id)
+    state.nodes.set(id, {
+      id, type: 'buyer', label: shortAddr,
+      totalUsd: (existing?.totalUsd ?? 0) + ((d.amountUsd as number) ?? 0),
+    })
+    const edgeKey = `herald-agent→${id}`
+    state.edges.set(edgeKey, {
+      sourceId: 'herald-agent', targetId: id, active: true,
+      lastActive: activate ? Date.now() : undefined, direction: 'in',
+    })
+    return edgeKey
+  }
+
+  return null
+}
+
+export default function FlowGraph({ events, history }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stateRef = useRef<GraphState>({ nodes: new Map([['herald-agent', { ...AGENT_NODE }]]), edges: new Map() })
   const animRef = useRef<number>()
   const particlesRef = useRef<Array<{ edgeKey: string; t: number; dir: 'in' | 'out' }>>([])
+  const processedIdsRef = useRef<Set<string>>(new Set())
+  const [hasData, setHasData] = useState(false)
 
-  // Update graph state from events
+  // Seed real aggregated totals from DB history once on mount — no particles,
+  // just the static picture of who's been paid / who's paid so far.
+  useEffect(() => {
+    if (!history || history.length === 0) return
+    const state = stateRef.current
+    let seeded = false
+    history.forEach(event => {
+      if (processedIdsRef.current.has(event.id)) return
+      processedIdsRef.current.add(event.id)
+      if (applyEventToState(state, event, false)) seeded = true
+    })
+    if (seeded) setHasData(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Live events animate particles along the edges. Processed by id so that
+  // events already seen (including ones carried over from `history`) are
+  // never re-applied — re-running this over the whole accumulated array on
+  // every new event would otherwise double-count totals and re-spawn
+  // particles for every past event each time.
   useEffect(() => {
     const state = stateRef.current
     const newParticles: typeof particlesRef.current = []
 
+    let gotData = false
     events.forEach(event => {
-      const d = event.data as Record<string, unknown>
-      if (event.type === 'payment:sent') {
-        const domain = (d.domain ?? d.url ?? 'source') as string
-        const id = `source:${domain}`
-        const existing = state.nodes.get(id)
-        state.nodes.set(id, {
-          id, type: 'source', label: domain,
-          totalUsd: (existing?.totalUsd ?? 0) + ((d.amountUsd as number) ?? 0),
-        })
-        const edgeKey = `${id}→herald-agent`
-        state.edges.set(edgeKey, { sourceId: id, targetId: 'herald-agent', active: true, lastActive: Date.now(), direction: 'out' })
-        newParticles.push({ edgeKey, t: 0, dir: 'out' })
-      }
-
-      if (event.type === 'payment:received') {
-        const buyerAddr = (d.buyerAddress ?? 'buyer') as string
-        const shortAddr = buyerAddr.length > 8 ? buyerAddr.slice(0, 6) + '…' : buyerAddr
-        const id = `buyer:${buyerAddr}`
-        const existing = state.nodes.get(id)
-        state.nodes.set(id, {
-          id, type: 'buyer', label: shortAddr,
-          totalUsd: (existing?.totalUsd ?? 0) + ((d.amountUsd as number) ?? 0),
-        })
-        const edgeKey = `herald-agent→${id}`
-        state.edges.set(edgeKey, { sourceId: 'herald-agent', targetId: id, active: true, lastActive: Date.now(), direction: 'in' })
-        newParticles.push({ edgeKey, t: 0, dir: 'in' })
+      if (processedIdsRef.current.has(event.id)) return
+      processedIdsRef.current.add(event.id)
+      const edgeKey = applyEventToState(state, event, true)
+      if (edgeKey) {
+        newParticles.push({ edgeKey, t: 0, dir: event.type === 'payment:received' ? 'in' : 'out' })
+        gotData = true
       }
     })
 
     particlesRef.current = [...particlesRef.current, ...newParticles]
+    if (gotData) setHasData(true)
   }, [events])
 
   // D3-style force simulation + canvas rendering
@@ -106,7 +152,7 @@ export default function FlowGraph({ events }: Props) {
       // Layout: agent center, sources left, buyers right
       const cx = W / 2, cy = H / 2
 
-      nodes.forEach((node, i) => {
+      nodes.forEach((node) => {
         if (node.type === 'agent') { node.x = cx; node.y = cy; return }
         const peers = nodes.filter(n => n.type === node.type)
         const idx   = peers.indexOf(node)
@@ -194,14 +240,14 @@ export default function FlowGraph({ events }: Props) {
         // Circle
         ctx.beginPath()
         ctx.arc(node.x!, node.y!, radius, 0, Math.PI * 2)
-        ctx.fillStyle = node.type === 'agent' ? color : 'var(--bg-card, #0D1424)'
+        ctx.fillStyle = node.type === 'agent' ? color : '#0D1424'
         ctx.fill()
         ctx.strokeStyle = color
         ctx.lineWidth = node.type === 'agent' ? 2 : 1.5
         ctx.stroke()
 
         // Label
-        ctx.fillStyle = node.type === 'agent' ? '#fff' : 'var(--text-data, #94A3B8)'
+        ctx.fillStyle = node.type === 'agent' ? '#fff' : '#94A3B8'
         ctx.font = node.type === 'agent' ? 'bold 10px Inter' : '9px Inter'
         ctx.textAlign = 'center'
         ctx.fillText(label.slice(0, 12), node.x!, node.y! + radius + 14)
@@ -229,10 +275,22 @@ export default function FlowGraph({ events }: Props) {
           <span style={{ color: 'var(--earn-mint)' }}>● Buyers</span>
         </div>
       </div>
-      <canvas
-        ref={canvasRef}
-        style={{ flex: 1, width: '100%', borderRadius: 8, background: '#070B14' }}
-      />
+      <div style={{ position: 'relative', flex: 1 }}>
+        <canvas
+          ref={canvasRef}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', borderRadius: 8, background: '#070B14' }}
+        />
+        {!hasData && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            textAlign: 'center', padding: '1.5rem', pointerEvents: 'none',
+          }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 220 }}>
+              Your agent&apos;s economy will appear here after its first cycle.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

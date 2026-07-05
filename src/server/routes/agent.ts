@@ -17,7 +17,7 @@ import { getHeraldWalletAddress } from '../../agent/secrets';
 import { getCircleEvmSigner } from '../../agent/circleSign';
 import { depositToGateway } from '../../agent/gateway';
 import { BatchEvmScheme } from '@circle-fin/x402-batching/client';
-import { getRecentPayments, getDailyBalance, getConfig, insertPayment } from '../../shared/db';
+import { getRecentPayments, getDailyBalance, getConfig, insertPayment, getFeedHistory } from '../../shared/db';
 import { emit, eventBus } from '../../shared/events';
 import type { EconomyEvent } from '../../shared/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -82,6 +82,14 @@ router.get('/payments', (req: Request, res: Response) => {
   const limit = Math.min(parseInt((req.query.limit as string) ?? '50', 10), 100);
   const payments = getRecentPayments(limit);
   res.json(payments);
+});
+
+// GET /api/agent/feed-history — past DB-persisted payment/skip/publish events,
+// shaped exactly like EconomyEvent, so the Economy page's Live Feed and
+// FlowGraph never look dead on a fresh load (before any live SSE event fires).
+router.get('/feed-history', (req: Request, res: Response) => {
+  const limit = Math.min(parseInt((req.query.limit as string) ?? '50', 10), 200);
+  res.json(getFeedHistory(limit));
 });
 
 // POST /api/agent/run — manual cycle trigger

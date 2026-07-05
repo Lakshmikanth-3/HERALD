@@ -2,7 +2,7 @@
 // Stores brief in database, emits publication event.
 // The x402 gate is applied at the Express route level (see server/routes/briefs.ts)
 
-import { insertBrief } from '../shared/db';
+import { insertBrief, getConfig } from '../shared/db';
 import { emit } from '../shared/events';
 import { priceBrief } from './synthesize';
 import type { SynthesisResult } from './synthesize';
@@ -14,7 +14,8 @@ export async function publishBrief(
   synthesis: SynthesisResult
 ): Promise<Brief> {
   const id = uuidv4();
-  const priceUsd = priceBrief(synthesis.productionCost, synthesis.sources.length);
+  const floorUsd = parseFloat(getConfig('briefPrice') ?? '0.03');
+  const priceUsd = priceBrief(synthesis.productionCost, synthesis.sources.length, floorUsd);
 
   const brief: Brief = {
     id,

@@ -9,6 +9,7 @@ interface FeedEntry {
   sublabel: string
   amount?: number
   timestamp: number
+  historical?: boolean
 }
 
 interface Props {
@@ -119,14 +120,15 @@ export default function LiveFeed({ entries }: Props) {
         return (
           <div
             key={entry.id}
-            className="animate-fade-in"
+            className={entry.historical ? undefined : 'animate-fade-in'}
             style={{
               display: 'flex',
               alignItems: 'flex-start',
               gap: 10,
               padding: '10px 12px',
               borderRadius: 8,
-              background: i === 0 ? bg : 'transparent',
+              background: !entry.historical && i === 0 ? bg : 'transparent',
+              opacity: entry.historical ? 0.5 : 1,
               transition: 'background 0.3s',
             }}
           >

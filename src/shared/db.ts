@@ -4,7 +4,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { Brief, PaymentRecord, AgentConfig, PaidSource } from './types';
+import type { Brief, PaymentRecord, PaidSource } from './types';
 
 const DB_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DB_DIR, 'herald.db');
@@ -195,6 +195,93 @@ export function getDailyBalance(): { spentToday: number; earnedToday: number } {
   const sent = db.prepare(`SELECT COALESCE(SUM(amount_usd), 0) as total FROM payments WHERE type = 'sent' AND timestamp >= ?`).get(startOfDay) as { total: number };
   const received = db.prepare(`SELECT COALESCE(SUM(amount_usd), 0) as total FROM payments WHERE type = 'received' AND timestamp >= ?`).get(startOfDay) as { total: number };
   return { spentToday: sent.total, earnedToday: received.total };
+}
+
+// ── Feed history ──────────────────────────────────────────────────────────────
+// Reconstructs past economy events (payments sent/received/skipped, briefs
+// published) from the DB so the Economy page's Live Feed and FlowGraph never
+// look empty/dead on load — only what's real and already persisted, no synthetic
+// filler. Shape matches EconomyEvent exactly so the frontend can feed these
+// straight into the same event-processing code paths as live SSE events.
+export interface FeedHistoryItem {
+  id: string;
+  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published';
+  data: Record<string, unknown>;
+  timestamp: number; // ms, to match EconomyEvent.timestamp (Date.now())
+}
+
+export function getFeedHistory(limit = 50): FeedHistoryItem[] {
+  const db = getDb();
+  const paymentRows = db.prepare(
+    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'skipped') ORDER BY timestamp DESC LIMIT ?`
+  ).all(limit) as Record<string, unknown>[];
+  const briefRows = db.prepare(
+    `SELECT * FROM briefs ORDER BY published_at DESC LIMIT ?`
+  ).all(limit) as Record<string, unknown>[];
+
+  const items: FeedHistoryItem[] = [];
+
+  for (const p of paymentRows) {
+    const type = p.type as 'sent' | 'received' | 'skipped';
+    const timestamp = (p.timestamp as number) * 1000;
+    if (type === 'sent') {
+      items.push({
+        id: p.id as string,
+        type: 'payment:sent',
+        timestamp,
+        data: {
+          url: p.url,
+          domain: p.destination,
+          title: p.reason,
+          amountUsd: p.amount_usd,
+          wasX402: (p.amount_usd as number) > 0,
+        },
+      });
+    } else if (type === 'received') {
+      items.push({
+        id: p.id as string,
+        type: 'payment:received',
+        timestamp,
+        data: {
+          briefId: p.brief_id,
+          briefTitle: p.reason,
+          amountUsd: p.amount_usd,
+          buyerAddress: p.source,
+        },
+      });
+    } else {
+      items.push({
+        id: p.id as string,
+        type: 'payment:skipped',
+        timestamp,
+        data: {
+          url: p.url,
+          domain: p.destination,
+          reason: p.reason,
+        },
+      });
+    }
+  }
+
+  for (const b of briefRows) {
+    const sources = JSON.parse(b.sources as string) as unknown[];
+    items.push({
+      id: b.id as string,
+      type: 'brief:published',
+      timestamp: (b.published_at as number) * 1000,
+      data: {
+        id: b.id,
+        title: b.title,
+        priceUsd: b.price_usd,
+        productionCost: b.production_cost,
+        sourcesCount: sources.length,
+        confidence: b.confidence,
+      },
+    });
+  }
+
+  items.sort((a, b) => b.timestamp - a.timestamp);
+  return items.slice(0, limit);
 }
 
 // ── Sources Seen ──────────────────────────────────────────────────────────────

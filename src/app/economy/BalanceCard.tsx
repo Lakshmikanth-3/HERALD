@@ -51,7 +51,7 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Net today</span>
           <span className="font-mono" style={{ fontSize: 15, fontWeight: 700, color: netColor }}>
-            {net >= 0 ? '+' : ''}${net.toFixed(4)}
+            {net >= 0 ? '+' : '-'}${Math.abs(net).toFixed(4)}
           </span>
         </div>
       </div>

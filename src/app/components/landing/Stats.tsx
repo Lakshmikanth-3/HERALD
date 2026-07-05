@@ -52,7 +52,7 @@ export function Stats() {
     <section className="relative py-24 lg:py-32">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <p className="text-center text-xs font-mono uppercase tracking-widest text-muted-foreground/60 mb-10">
-          Live from this agent's own ledger — not a mockup
+          Live from this agent&apos;s own ledger — not a mockup
         </p>
         <div className="grid md:grid-cols-3 gap-12 md:gap-8">
           {items.map((stat, index) => (

@@ -40,18 +40,38 @@ async function getToken() {
   return _token;
 }
 
+// Observed live: 1Claw's vault occasionally answers a secret read with its own
+// x402 "payment required" challenge (HTTP 402) rather than the secret,
+// self-resolving within seconds without ever being paid — almost certainly a
+// rate-limit/quota mechanism on their side, not a hard requirement. We retry
+// this specific case with a short backoff. We deliberately never construct or
+// send a payment for it: the challenge is denominated in real mainnet USDC
+// (eip155:8453 / Base), a completely different economic domain from the Arc
+// testnet fake-money flows this project runs everywhere else — paying it
+// automatically would be a real financial decision this code must not make
+// unattended.
+const VAULT_PAYMENT_RETRY_DELAYS_MS = [1500, 3000, 5000];
+
 async function getSecret(path: string): Promise<string> {
   if (cache.has(path)) return cache.get(path)!
   try {
     const token = await getToken();
-    const res = await fetchWithRetry(`${process.env.ONECLAW_BASE_URL ?? 'https://api.1claw.xyz'}/v1/vaults/${VAULT_ID()}/secrets/${path}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
+    const url = `${process.env.ONECLAW_BASE_URL ?? 'https://api.1claw.xyz'}/v1/vaults/${VAULT_ID()}/secrets/${path}`;
+
+    let res = await fetchWithRetry(url, { headers: { 'Authorization': `Bearer ${token}` } });
+
+    for (const delayMs of VAULT_PAYMENT_RETRY_DELAYS_MS) {
+      if (res.status !== 402) break;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      res = await fetchWithRetry(url, { headers: { 'Authorization': `Bearer ${token}` } });
+    }
+
     if (!res.ok) {
       if (res.status === 401) {
         throw new Error(`1Claw API Key is expired or invalid (401 Unauthorized). Please update ONECLAW_AGENT_API_KEY.`);
+      }
+      if (res.status === 402) {
+        throw new Error(`1Claw vault is rate-limited (still 402 after retries) — wait a moment and try again, or check your 1Claw dashboard for quota/billing.`);
       }
       throw new Error(`1Claw Error: ${await res.text()}`);
     }
@@ -59,8 +79,8 @@ async function getSecret(path: string): Promise<string> {
     if (!data?.value) throw new Error(`1Claw: secret not found at path "${path}"`)
     cache.set(path, data.value)
     return data.value
-  } catch (err: any) {
-    throw new Error(`Failed to fetch secret ${path}: ${err.message}`)
+  } catch (err) {
+    throw new Error(`Failed to fetch secret ${path}: ${(err as Error).message}`)
   }
 }
 

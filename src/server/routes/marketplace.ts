@@ -2,7 +2,7 @@
 // Lists all available briefs from all agents for purchase
 
 import { Router, Request, Response } from 'express';
-import { getAllBriefs, getConfig } from '../../shared/db';
+import { getAllBriefs } from '../../shared/db';
 
 const router = Router();
 

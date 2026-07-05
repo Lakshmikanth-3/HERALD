@@ -13,14 +13,15 @@ export default function BriefPreview({ brief }: Props) {
         <div style={{ fontSize: 32, opacity: 0.2 }}>◆</div>
         <p style={{ color: 'var(--text-muted)', fontSize: 14, textAlign: 'center' }}>
           No briefs yet.<br />
-          <span style={{ fontSize: 12 }}>First brief will appear here after the agent's first synthesis cycle.</span>
+          <span style={{ fontSize: 12 }}>First brief will appear here after the agent&apos;s first synthesis cycle.</span>
         </p>
       </div>
     )
   }
 
   const isProfit = brief.revenue > brief.productionCost
-  const netStr = (brief.revenue - brief.productionCost).toFixed(4)
+  const net = brief.revenue - brief.productionCost
+  const netStr = Math.abs(net).toFixed(4)
 
   function copyX402Link() {
     const url = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/briefs/${brief!.id}`
@@ -63,7 +64,7 @@ export default function BriefPreview({ brief }: Props) {
         <MicroStat label="Revenue" value={`$${brief.revenue.toFixed(4)}`} color="var(--earn-mint)" />
         <MicroStat
           label="Net"
-          value={`${parseFloat(netStr) >= 0 ? '+' : ''}$${netStr}`}
+          value={`${net >= 0 ? '+' : '-'}$${netStr}`}
           color={isProfit ? 'var(--earn-mint)' : 'var(--warn-amber)'}
           tag={isProfit ? 'PROFITABLE' : 'INVESTING'}
         />

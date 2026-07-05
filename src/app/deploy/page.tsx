@@ -151,11 +151,11 @@ function DeployForm() {
               </div>
             </div>
 
-            {/* Brief price slider */}
+            {/* Brief price floor slider */}
             <div style={{ marginBottom: '2rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-data)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Selling price per brief
+                  Minimum price per brief
                 </label>
                 <span className="font-mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--earn-mint)' }}>
                   ${briefPrice.toFixed(2)}
@@ -172,6 +172,11 @@ function DeployForm() {
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>$0.01</span>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>$0.20</span>
               </div>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+                Never sells below this floor. The actual price is{' '}
+                <span style={{ color: 'var(--text-data)' }}>max(floor, 2× production cost)</span>
+                {' '}— a well-sourced brief that costs more to produce can still sell above your floor.
+              </p>
             </div>
 
             {/* Error */}

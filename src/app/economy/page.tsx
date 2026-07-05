@@ -7,6 +7,8 @@ import LiveFeed, { buildFeedEntry } from './LiveFeed'
 import BalanceCard from './BalanceCard'
 import FlowGraph from './FlowGraph'
 import BriefPreview from './BriefPreview'
+import { CycleStepper, FirstRunCard, CycleToast } from './CycleStatus'
+import type { CycleStep, CycleSummary } from './CycleStatus'
 import type { EconomyEvent, BriefMetadata } from '../../shared/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
@@ -31,11 +33,19 @@ export default function EconomyPage() {
   const [balance, setBalance] = useState<BalanceData>({ usdcBalance: 0, spentToday: 0, earnedToday: 0 })
   const [feedEntries, setFeedEntries] = useState<FeedEntry[]>([])
   const [allEvents, setAllEvents] = useState<EconomyEvent[]>([])
+  const [flowHistory, setFlowHistory] = useState<EconomyEvent[]>([])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [latestBrief, setLatestBrief] = useState<BriefMetadata | null>(null)
   const [triggering, setTriggering] = useState(false)
+  const [cycleStep, setCycleStep] = useState<CycleStep | null>(null)
+  const [cycleActive, setCycleActive] = useState(false)
+  const [cycleSummary, setCycleSummary] = useState<CycleSummary | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // Load initial status, balance, and latest brief preview (metadata only — no payment needed)
+  // Load initial status, balance, latest brief preview, and past feed history
+  // (real DB-persisted payment/skip/publish events) so the page never looks
+  // dead on a fresh load, before any live SSE event has fired.
   useEffect(() => {
     async function load() {
       try {
@@ -66,8 +76,30 @@ export default function EconomyPage() {
     return () => clearInterval(pollRef.current)
   }, [])
 
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const res = await fetch(`${API}/api/agent/feed-history?limit=50`)
+        if (res.ok) {
+          const history = await res.json() as EconomyEvent[]
+          setFlowHistory(history)
+          const entries = history
+            .map(buildFeedEntry)
+            .filter((e): e is FeedEntry => e !== null)
+            .map(e => ({ ...e, historical: true }))
+          setFeedEntries(entries)
+        }
+      } catch (e) {
+        console.error('Failed to load feed history:', e)
+      } finally {
+        setHistoryLoaded(true)
+      }
+    }
+    loadHistory()
+  }, [])
+
   const handleEvent = useCallback((event: EconomyEvent) => {
-    setAllEvents(prev => [event, ...prev].slice(0, 200))
+    setAllEvents(prev => [...prev, event].slice(-200))
 
     const entry = buildFeedEntry(event)
     if (entry) {
@@ -89,6 +121,39 @@ export default function EconomyPage() {
         .then(r => r.ok ? r.json() : null)
         .then(b => { if (b) setLatestBrief(b as BriefMetadata) })
     }
+
+    // ── Cycle progress: derive the active step + a completion summary from
+    // real cycle events (never simulated — same events power the stepper,
+    // the "Running…" spinner on the Run Now button, and this toast).
+    if (event.type === 'agent:cycle:start') {
+      const stage = event.data.stage as string
+      setCycleActive(true)
+      setCycleSummary(null)
+      if (stage === 'starting' || stage === 'discovering') setCycleStep('discover')
+      else if (stage === 'scoring') setCycleStep('score')
+      else if (stage === 'synthesizing' || stage === 'synthesis') setCycleStep('synthesize')
+    }
+    if (event.type === 'payment:sent' || event.type === 'payment:skipped') {
+      setCycleStep(prev => (prev === 'discover' || prev === 'score' || prev === null) ? 'pay' : prev)
+    }
+    if (event.type === 'brief:published') {
+      setCycleStep('publish')
+    }
+    if (event.type === 'agent:cycle:end') {
+      setCycleActive(false)
+      setCycleStep(null)
+      const d = event.data as Record<string, unknown>
+      const summary: CycleSummary = {
+        stage: d.stage as string,
+        sourcesCount: d.sourcesCount as number | undefined,
+        sessionSpent: d.sessionSpent as number | undefined,
+        briefTitle: d.briefTitle as string | undefined,
+        error: d.error as string | undefined,
+      }
+      setCycleSummary(summary)
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = setTimeout(() => setCycleSummary(null), 8000)
+    }
   }, [])
 
   async function triggerRun() {
@@ -102,26 +167,37 @@ export default function EconomyPage() {
   }
 
   const net = balance.earnedToday - balance.spentToday
+  const isRunning = cycleActive || (status?.isRunning ?? false)
+  const showFirstRun = historyLoaded && feedEntries.length === 0 && !isRunning
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <SSEListener onEvent={handleEvent} />
       <HeraldNav topic={status?.topic ?? undefined} />
 
-      <div className="economy-grid">
+      <div style={{ padding: '20px 20px 0' }}>
+        {showFirstRun && (
+          <FirstRunCard onRun={triggerRun} running={triggering || isRunning} configured={status?.configured ?? false} />
+        )}
+        <div className="card" style={{ marginBottom: 16, padding: '10px 16px', overflowX: 'auto' }}>
+          <CycleStepper activeStep={cycleStep} running={isRunning} />
+        </div>
+      </div>
+
+      <div className="economy-grid" style={{ paddingTop: 0 }}>
 
         {/* Zone A — Balance */}
-        <div style={{ gridRow: '1', gridColumn: '1' }}>
+        <div style={{ gridRow: '1', gridColumn: '1', minHeight: 0 }}>
           <BalanceCard
             spentToday={balance.spentToday}
             earnedToday={balance.earnedToday}
             walletBalance={balance.usdcBalance}
-            isRunning={status?.isRunning ?? false}
+            isRunning={isRunning}
           />
         </div>
 
         {/* Zone B — Live Economy Feed */}
-        <div style={{ gridRow: '1', gridColumn: '2' }}>
+        <div style={{ gridRow: '1', gridColumn: '2', minHeight: 0 }}>
           <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -138,28 +214,32 @@ export default function EconomyPage() {
                   className="btn-primary"
                   style={{ fontSize: 12, padding: '6px 12px' }}
                   onClick={triggerRun}
-                  disabled={triggering || (status?.isRunning ?? false)}
+                  disabled={triggering || isRunning}
                 >
-                  {triggering || status?.isRunning ? '⟳ Running…' : '▶ Run Now'}
+                  {triggering || isRunning ? '⟳ Running…' : '▶ Run Now'}
                 </button>
               </div>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
               <LiveFeed entries={feedEntries} />
             </div>
           </div>
         </div>
 
         {/* Zone C — Agent Flow */}
-        <div style={{ gridRow: '2', gridColumn: '1' }}>
-          <FlowGraph events={allEvents} />
+        <div style={{ gridRow: '2', gridColumn: '1', minHeight: 0 }}>
+          <FlowGraph events={allEvents} history={flowHistory} />
         </div>
 
         {/* Zone D — Brief Preview (free metadata — pay in Library to read full) */}
-        <div style={{ gridRow: '2', gridColumn: '2' }}>
+        <div style={{ gridRow: '2', gridColumn: '2', minHeight: 0 }}>
           <BriefPreview brief={latestBrief} />
         </div>
       </div>
+
+      {cycleSummary && (
+        <CycleToast summary={cycleSummary} onDismiss={() => setCycleSummary(null)} />
+      )}
     </div>
   )
 }

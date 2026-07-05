@@ -21,15 +21,16 @@ export default function HeraldNav({ topic }: { topic?: string }) {
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
           }}>
-            "{topic}"
+            &quot;{topic}&quot;
           </span>
         )}
       </div>
 
       <div className="nav-links">
-        <Link href="/deploy"    className={`nav-link ${pathname.startsWith('/deploy')    ? 'active' : ''}`}>Deploy</Link>
-        <Link href="/economy"   className={`nav-link ${pathname.startsWith('/economy')   ? 'active' : ''}`}>Economy</Link>
-        <Link href="/library"   className={`nav-link ${pathname.startsWith('/library')   ? 'active' : ''}`}>Library</Link>
+        <Link href="/deploy"        className={`nav-link ${pathname.startsWith('/deploy')        ? 'active' : ''}`}>Deploy</Link>
+        <Link href="/economy"       className={`nav-link ${pathname.startsWith('/economy')       ? 'active' : ''}`}>Economy</Link>
+        <Link href="/library"       className={`nav-link ${pathname.startsWith('/library')       ? 'active' : ''}`}>Library</Link>
+        <Link href="/how-it-works"  className={`nav-link ${pathname.startsWith('/how-it-works')  ? 'active' : ''}`}>How it works</Link>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

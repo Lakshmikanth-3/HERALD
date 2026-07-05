@@ -318,18 +318,26 @@ input[type=range]::-webkit-slider-thumb {
 
 .economy-grid {
   flex: 1;
+  min-height: 0;
   padding: 20px;
   display: grid;
   grid-template-columns: 220px 1fr;
   grid-template-rows: 1fr 1fr;
   gap: 16px;
-  max-height: calc(100vh - 60px);
+}
+/* A 1fr track's implicit min-width is `auto` (content-based), not 0 — so a
+   child with unshrinkable content (mono numbers, nowrap labels) blows the
+   track out past the grid container instead of respecting 1fr. Same failure
+   mode as the flexbox min-height:auto issue elsewhere on this page, just on
+   the horizontal axis. */
+.economy-grid > div {
+  min-width: 0;
 }
 @media (max-width: 768px) {
   .economy-grid {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
-    max-height: none;
+    min-height: auto;
     overflow-y: visible;
     padding: 12px;
   }

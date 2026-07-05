@@ -106,9 +106,17 @@ export async function synthesize(
   }
 }
 
-export function priceBrief(productionCost: number, sourcesCount: number): number {
+// floorUsd is the "Minimum price per brief" value the user sets on the Deploy
+// screen — a price floor, not a fixed price. The agent never sells for less
+// than the user's floor, but if the real cost-based price (2x production cost
+// plus a small quality bonus) comes out higher, that's what's charged instead.
+// Note: production cost is often $0 (most sources are free RSS reads), so
+// costBased alone can legitimately be $0 — there's no hardcoded internal
+// minimum here, otherwise the floor slider's lower range would be dead for
+// exactly that common case.
+export function priceBrief(productionCost: number, sourcesCount: number, floorUsd = 0.03): number {
   const targetMargin = 2.0;
-  const basePrice = Math.max(productionCost * targetMargin, 0.03);
   const qualityBonus = Math.log(Math.max(sourcesCount, 1)) * 0.005;
-  return Math.max(0.03, Math.min(0.10, basePrice + qualityBonus));
+  const costBased = productionCost * targetMargin + qualityBonus;
+  return Math.max(0.01, Math.min(0.20, Math.max(floorUsd, costBased)));
 }

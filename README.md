@@ -4,6 +4,13 @@
 
 Built for the Lepton Agents Hackathon (Canteen × Circle × Arc).
 
+**Live demo (frontend only):** [lepton-blue.vercel.app](https://lepton-blue.vercel.app)
+— the UI is public, but every API call (wallet balance, live feed, deploy, buy)
+only works if you're also running the backend locally on the same machine (see
+Setup below). Vercel only hosts the Next.js frontend; the Express API needs a
+persistent process (SQLite file, a 4-hour cron scheduler, long-lived SSE
+connections) that serverless functions can't provide.
+
 HERALD is an autonomous research agent with its own Circle Agent Wallet. Every
 session it:
 
@@ -147,8 +154,17 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
   payment path fire for real instead of every RSS source just being free.
   Both return real HTTP 402s and verify payment via Circle's Gateway
   batching API.
-- `src/app/` — the three screens: Deploy (onboarding), Economy (live
-  dashboard), Library (your briefs + marketplace).
+- `src/app/` — the landing page (`page.tsx` + `components/landing/`), Deploy
+  (onboarding), Economy (live dashboard), Library (your briefs +
+  marketplace), and How it works (the x402 loop explained, with a live
+  wallet explorer link and a copyable curl snippet that reproduces a real
+  402 response). The landing page's Stats section fetches real numbers from
+  your own API — no placeholder marketing copy.
+- `src/components/ui/` + `src/lib/utils.ts` — small shadcn-style primitives
+  (Button, Accordion) backing the landing page, ported from
+  `electric-landing-page-template/` and adapted onto the existing Tailwind
+  v3 setup (see that folder's `components/` for the original reference
+  design — it's excluded from the app build via `.vercelignore`/tsconfig).
 - `src/shared/` — SQLite client, SSE event bus, shared types.
 
 ## Circle/Arc/1Claw stack
@@ -161,3 +177,24 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
 | 1Claw vault | Runtime secret storage — Circle/Gemini keys never sit in `process.env` while the agent runs (`src/agent/secrets.ts`) |
 | TestMint | x402-gated testnet USDC faucet for funding the agent wallet |
 | Google Gemini | Brief synthesis (`src/agent/synthesize.ts`) |
+
+## Known limitations
+
+- **1Claw's vault occasionally answers a secret read with its own x402
+  "payment required" challenge** (HTTP 402, denominated in real Base
+  mainnet USDC — not this project's Arc testnet fake money), most likely a
+  rate-limit/quota mechanism on their side. It self-resolves within
+  seconds; `secrets.ts` retries it a few times with backoff. It never
+  constructs or sends a payment for this automatically — that would be a
+  real financial decision, not something to make unattended in a research
+  agent's secret-fetch path. If you see `1Claw vault is rate-limited` in an
+  error, wait a moment and retry.
+- **Running `npm run build` while `npm run dev` is active corrupts the
+  `.next` dev cache** (a general Next.js dev-vs-build artifact conflict,
+  not HERALD-specific) and breaks every page with `Cannot find module
+  './NNN.js'`. Fix: stop `dev`, `rm -rf .next`, restart `npm run dev`.
+- **7 pre-existing `npm audit` vulnerabilities** in `next`/
+  `eslint-config-next`/`postcss` (would need a Next.js 14→16 major
+  version bump) and `ws` (a dependency of `viem`, used by the real x402
+  signing path). Not fixed — the Next.js bump is a breaking change out of
+  scope here, and `ws` sits underneath the live signing code.

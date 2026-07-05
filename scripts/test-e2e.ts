@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
+import { priceBrief } from '../src/agent/synthesize';
 
 async function runTests() {
   console.log('🧪 Starting HERALD Automated Integration Tests...\n');
@@ -65,6 +66,37 @@ async function runTests() {
         throw new Error(`Expected HTTP 402, but got ${gatedRes.status}`);
       }
     }
+
+    // ---------------------------------------------------------
+    // TEST 7: Feed history endpoint (past DB-persisted events)
+    // ---------------------------------------------------------
+    console.log('\n[Test 7] Checking GET /api/agent/feed-history...');
+    const historyRes = await fetch(`${API_BASE}/agent/feed-history?limit=50`);
+    if (!historyRes.ok) throw new Error('Failed to fetch feed history.');
+    const history = await historyRes.json();
+    if (!Array.isArray(history)) throw new Error('feed-history did not return an array.');
+    for (const item of history) {
+      if (!item.id || !item.type || !item.timestamp) {
+        throw new Error(`feed-history item missing required EconomyEvent fields: ${JSON.stringify(item)}`);
+      }
+    }
+    console.log(`  ✅ feed-history returned ${history.length} real event(s), correctly shaped.`);
+
+    // ---------------------------------------------------------
+    // TEST 8: Price floor logic (pure function — no server needed)
+    // ---------------------------------------------------------
+    console.log('\n[Test 8] Verifying priceBrief() respects the user-set floor...');
+    const cheapCost = 0.001; // 2x = $0.002, well under any reasonable floor
+    const withHighFloor = priceBrief(cheapCost, 3, 0.15);
+    if (withHighFloor !== 0.15) throw new Error(`Expected floor $0.15 to win, got $${withHighFloor}`);
+
+    const expensiveCost = 0.20; // 2x = $0.40, clamped to the $0.20 ceiling
+    const withLowFloor = priceBrief(expensiveCost, 3, 0.01);
+    if (withLowFloor !== 0.20) throw new Error(`Expected cost-based price to be clamped at $0.20 ceiling, got $${withLowFloor}`);
+
+    const belowFloorCeiling = priceBrief(0, 1, 0.005); // floor below the $0.01 absolute minimum
+    if (belowFloorCeiling !== 0.01) throw new Error(`Expected absolute $0.01 minimum, got $${belowFloorCeiling}`);
+    console.log('  ✅ priceBrief() correctly returns max(floor, costBased) clamped to $0.01–$0.20.');
 
     console.log('\n🎉 ALL TESTS PASSED! The HERALD Agent is fully operational.');
   } catch (error: any) {

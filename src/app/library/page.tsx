@@ -147,7 +147,7 @@ export default function LibraryPage() {
               <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.3 }}>◆</div>
               No briefs yet. Go to{' '}
               <a href="/economy" style={{ color: 'var(--usdc-blue)' }}>Economy</a>{' '}
-              and click "Run Now" to generate your first brief.
+              and click &quot;Run Now&quot; to generate your first brief.
             </div>
           )}
 
