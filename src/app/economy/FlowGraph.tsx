@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { EconomyEvent } from '../../shared/types'
+import { dedupeNewById } from '../../lib/dedupe'
 
 interface GraphNode {
   id: string
@@ -90,11 +91,9 @@ export default function FlowGraph({ events, history }: Props) {
     if (!history || history.length === 0) return
     const state = stateRef.current
     let seeded = false
-    history.forEach(event => {
-      if (processedIdsRef.current.has(event.id)) return
-      processedIdsRef.current.add(event.id)
+    for (const event of dedupeNewById(processedIdsRef.current, history)) {
       if (applyEventToState(state, event, false)) seeded = true
-    })
+    }
     if (seeded) setHasData(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -109,15 +108,13 @@ export default function FlowGraph({ events, history }: Props) {
     const newParticles: typeof particlesRef.current = []
 
     let gotData = false
-    events.forEach(event => {
-      if (processedIdsRef.current.has(event.id)) return
-      processedIdsRef.current.add(event.id)
+    for (const event of dedupeNewById(processedIdsRef.current, events)) {
       const edgeKey = applyEventToState(state, event, true)
       if (edgeKey) {
         newParticles.push({ edgeKey, t: 0, dir: event.type === 'payment:received' ? 'in' : 'out' })
         gotData = true
       }
-    })
+    }
 
     particlesRef.current = [...particlesRef.current, ...newParticles]
     if (gotData) setHasData(true)

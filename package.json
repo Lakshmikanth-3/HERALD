@@ -14,7 +14,10 @@
     "seed:vault": "tsx scripts/seed-vault.ts",
     "seed:sources": "tsx scripts/seed-paid-sources.ts",
     "lint": "next lint",
-    "test": "tsx scripts/test-e2e.ts"
+    "test": "tsx scripts/test-e2e.ts",
+    "test:unit": "tsx scripts/test-unit.ts",
+    "test:playwright": "tsx scripts/test-playwright.ts",
+    "test:all": "npm run lint && tsc --noEmit && npm run test:unit && npm run test && npm run test:playwright"
   },
   "dependencies": {
     "@1claw/sdk": "^0.34.1",

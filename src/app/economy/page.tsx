@@ -10,6 +10,7 @@ import BriefPreview from './BriefPreview'
 import { CycleStepper, FirstRunCard, CycleToast } from './CycleStatus'
 import type { CycleStep, CycleSummary } from './CycleStatus'
 import CycleReports from './CycleReports'
+import { formatSigned } from '../../lib/format'
 import type { EconomyEvent, BriefMetadata } from '../../shared/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
@@ -233,7 +234,7 @@ export default function EconomyPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span className="font-mono" style={{ fontSize: 12, color: net >= 0 ? 'var(--earn-mint)' : 'var(--warn-amber)' }}>
-                  {net >= 0 ? '+' : '-'}${Math.abs(net).toFixed(4)} today
+                  {formatSigned(net)} today
                 </span>
                 <button
                   className="btn-primary"

@@ -148,7 +148,35 @@ the Deploy screen, and watch it run on the Economy screen.
 | `npm run provision:sources-wallet` | Create the sources treasury wallet (separate payTo for gated content) |
 | `npm run seed:vault` | Push secrets from `.env.local` into the 1Claw vault |
 | `npm run seed:sources` | Populate real x402-gated original content the agent can buy |
-| `npm run test` | End-to-end integration test against a running `dev` server |
+| `npm run test` | Integration tests against a running `dev` server — real cycle trigger, real x402 purchase via the demo buyer wallet, public API checks, agent-to-agent self-exclusion check |
+| `npm run test:unit` | Pure logic unit tests, no server needed — `priceBrief()`, `scoreSource()`, `formatSigned()`, `dedupeNewById()` |
+| `npm run test:playwright` | Real Chromium checks against a running `dev` server — every page at 1440px/375px (zero console errors, zero overflow), a live triggered cycle (bounded height, no duplicate-key warnings) |
+| `npm run test:all` | Everything above in sequence: lint → typecheck → unit → integration → Playwright |
+
+## Testing
+
+Three layers, all real (no mocked network/DOM):
+
+- **Unit** (`scripts/test-unit.ts`) — pure functions, no server. Includes
+  regression tests for two bugs found this session: the `-$0.0369`-style
+  double-negative sign bug (`formatSigned`) and the FlowGraph event
+  double-processing bug (`dedupeNewById`).
+- **Integration** (`scripts/test-e2e.ts`) — against a running `npm run dev`.
+  Triggers a real agent cycle, verifies the x402 402-then-pay-then-content
+  round trip using the real demo buyer wallet (not a mock payment), and
+  checks the public `/network` APIs and the agent-to-agent self-exclusion
+  behavior.
+- **Browser** (`scripts/test-playwright.ts`) — a real Chromium instance,
+  not jsdom. Sweeps all 6 pages at desktop and mobile widths, and triggers
+  a live cycle while watching for unbounded page growth or duplicate-key
+  warnings (both real bugs this suite would have caught).
+
+Empty states (no briefs, no history) are covered by code review rather than
+a live check — this suite intentionally never wipes the real SQLite
+database just to screenshot a from-scratch state.
+
+Run `npm run test:all` before committing anything that touches the agent
+loop, payment routes, or the Economy/Library/Network pages.
 
 ## Architecture
 

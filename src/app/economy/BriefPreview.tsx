@@ -1,6 +1,7 @@
 'use client'
 
 import type { BriefMetadata } from '../../shared/types'
+import { formatSigned } from '../../lib/format'
 
 interface Props {
   brief: BriefMetadata | null
@@ -21,7 +22,6 @@ export default function BriefPreview({ brief }: Props) {
 
   const isProfit = brief.revenue > brief.productionCost
   const net = brief.revenue - brief.productionCost
-  const netStr = Math.abs(net).toFixed(4)
 
   function copyX402Link() {
     const url = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/briefs/${brief!.id}`
@@ -64,7 +64,7 @@ export default function BriefPreview({ brief }: Props) {
         <MicroStat label="Revenue" value={`$${brief.revenue.toFixed(4)}`} color="var(--earn-mint)" />
         <MicroStat
           label="Net"
-          value={`${net >= 0 ? '+' : '-'}$${netStr}`}
+          value={formatSigned(net)}
           color={isProfit ? 'var(--earn-mint)' : 'var(--warn-amber)'}
           tag={isProfit ? 'PROFITABLE' : 'INVESTING'}
         />
