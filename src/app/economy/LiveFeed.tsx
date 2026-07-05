@@ -89,6 +89,34 @@ export function buildFeedEntry(event: EconomyEvent): FeedEntry | null {
         timestamp: event.timestamp,
         txHash: d.depositTxHash as string | undefined,
       }
+    case 'agent:withdrawal':
+      return {
+        id: event.id,
+        type: event.type,
+        label: `Withdrew $${(d.amountUsd as number)?.toFixed(4)}`,
+        sublabel: `To ${(d.destinationAddress as string)?.slice(0, 10)}…`,
+        amount: d.amountUsd as number,
+        timestamp: event.timestamp,
+        txHash: d.txHash as string | undefined,
+      }
+    case 'discovery:bought':
+      return {
+        id: event.id,
+        type: event.type,
+        label: `Bought $${(d.amountUsd as number)?.toFixed(4)} brief from another agent`,
+        sublabel: (d.title as string)?.slice(0, 70) ?? 'Marketplace purchase',
+        amount: d.amountUsd as number,
+        timestamp: event.timestamp,
+        txHash: d.txHash as string | undefined,
+      }
+    case 'discovery:skipped':
+      return {
+        id: event.id,
+        type: event.type,
+        label: 'Agent-to-agent purchase skipped',
+        sublabel: (d.reason as string) ?? 'No relevant marketplace brief this cycle',
+        timestamp: event.timestamp,
+      }
     default:
       return null
   }
@@ -109,6 +137,9 @@ function entryIcon(type: EconomyEvent['type']): { icon: string; color: string; b
     case 'brief:published':   return { icon: '◆', color: 'var(--ai-purple)',  bg: 'rgba(167,139,250,0.12)' }
     case 'agent:low-balance': return { icon: '!', color: 'var(--warn-amber)', bg: 'rgba(245,158,11,0.12)' }
     case 'agent:deposit':     return { icon: '⇊', color: 'var(--usdc-blue)',  bg: 'var(--usdc-blue-dim, rgba(39,117,202,0.12))' }
+    case 'agent:withdrawal':  return { icon: '⇈', color: 'var(--usdc-blue)',  bg: 'var(--usdc-blue-dim, rgba(39,117,202,0.12))' }
+    case 'discovery:bought':  return { icon: '◆', color: 'var(--ai-purple)',  bg: 'rgba(167,139,250,0.12)' }
+    case 'discovery:skipped': return { icon: '○', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.04)' }
     default:                  return { icon: '·', color: 'var(--text-muted)', bg: 'transparent' }
   }
 }

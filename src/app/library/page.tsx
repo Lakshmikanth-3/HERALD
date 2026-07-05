@@ -29,6 +29,13 @@ interface Receipt {
   txHash?: string
 }
 
+interface SourcePayment {
+  url: string
+  amountUsd: number
+  timestamp: number
+  txHash?: string
+}
+
 interface PurchaseState {
   id: string
   status: 'pending' | 'paying' | 'error'
@@ -46,6 +53,7 @@ export default function LibraryPage() {
   const [expandedReceipts, setExpandedReceipts] = useState<string | null>(null)
   const [receipts, setReceipts] = useState<Record<string, Receipt[]>>({})
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
+  const [sourcePayments, setSourcePayments] = useState<Record<string, SourcePayment>>({})
 
   useEffect(() => {
     async function load() {
@@ -70,71 +78,39 @@ export default function LibraryPage() {
     return () => clearInterval(iv)
   }, [])
 
-  // Read own brief — sends a real x402 purchase request using the agent wallet.
-  // The server verifies the payment against Circle Gateway before returning content.
-  async function readBrief(id: string, priceUsd: number) {
-    setPurchase({ id, status: 'pending' })
+  // Fetch real per-source payment proof once a brief is opened (unlocked).
+  useEffect(() => {
+    if (!openBrief) return
+    fetch(`${API}/api/briefs/${openBrief.id}/source-payments`)
+      .then(r => r.ok ? r.json() : [])
+      .then((payments: SourcePayment[]) => {
+        setSourcePayments(Object.fromEntries(payments.map(p => [p.url, p])))
+      })
+      .catch(() => {})
+  }, [openBrief])
+
+  // Buy a brief with the "demo buyer wallet" — a separate, real Arc testnet
+  // wallet (src/agent/demoBuyer.ts), not the agent's own. Every brief in this
+  // single-instance deployment is the agent's own, and Circle's Gateway
+  // facilitator correctly rejects a wallet paying itself as `self_transfer`,
+  // so this is what makes "Read"/"Buy" actually complete a real purchase.
+  async function readBrief(id: string) {
+    setPurchase({ id, status: 'paying' })
     setJustPaid(null)
     try {
-      // Step 1: Hit the endpoint to get the 402 challenge
-      const challengeRes = await fetch(`${API}/api/briefs/${id}`)
-
-      if (challengeRes.status === 402) {
-        // Step 2: Got a real x402 challenge — instruct the agent to pay
-        setPurchase({ id, status: 'paying' })
-        const challenge = await challengeRes.json()
-
-        // Step 3: Request the agent wallet to make the payment via the agent run endpoint
-        // The agent's /api/agent/pay endpoint triggers a Circle wallet transfer to the payTo address
-        const payRes = await fetch(`${API}/api/agent/pay`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            briefId: id,
-            priceUsd,
-            challenge: challenge.x402 ?? challenge,
-          }),
-        })
-
-        if (!payRes.ok) {
-          const err = await payRes.json()
-          setPurchase({ id, status: 'error', error: err.error ?? 'Payment failed' })
-          return
-        }
-
-        const payData = await payRes.json()
-        // Step 4: Use the signed X-PAYMENT header returned by the payment endpoint
-        const contentRes = await fetch(`${API}/api/briefs/${id}`, {
-          headers: { 'X-PAYMENT': payData.xPaymentHeader },
-        })
-
-        if (contentRes.ok) {
-          // Standard x402 settlement-response header (base64 JSON) — the real
-          // tx hash for the payment that just happened, shown immediately as
-          // proof rather than requiring a page reload.
-          let txHash: string | undefined
-          const paymentResponseHeader = contentRes.headers.get('x-payment-response')
-          if (paymentResponseHeader) {
-            try {
-              const decoded = JSON.parse(atob(paymentResponseHeader)) as { transaction?: string }
-              txHash = decoded.transaction
-            } catch { /* not fatal — proof link just won't show */ }
-          }
-          setOpenBrief(await contentRes.json())
-          setJustPaid({ id, txHash })
-          setPurchase(null)
-        } else {
-          const err = await contentRes.json()
-          setPurchase({ id, status: 'error', error: err.error ?? 'Content delivery failed after payment' })
-        }
-      } else if (challengeRes.ok) {
-        // Shouldn't happen for gated content, but handle gracefully
-        setOpenBrief(await challengeRes.json())
-        setPurchase(null)
-      } else {
-        const err = await challengeRes.json()
-        setPurchase({ id, status: 'error', error: err.error ?? `HTTP ${challengeRes.status}` })
+      const res = await fetch(`${API}/api/agent/demo-buy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ briefId: id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setPurchase({ id, status: 'error', error: data.error ?? `HTTP ${res.status}` })
+        return
       }
+      setOpenBrief(data.brief)
+      setJustPaid({ id, txHash: data.txHash })
+      setPurchase(null)
     } catch (err) {
       setPurchase({ id, status: 'error', error: (err as Error).message })
     }
@@ -228,7 +204,7 @@ export default function LibraryPage() {
                       )}
                       {justPaid?.id === b.id && (
                         <p style={{ fontSize: 12, color: 'var(--earn-mint)', marginTop: 6 }}>
-                          ✓ Paid via real x402{justPaid.txHash && (
+                          ✓ Paid via real x402 (demo buyer wallet){justPaid.txHash && (
                             isRealTxHash(justPaid.txHash) ? (
                               <> — <a href={txUrl(justPaid.txHash)} target="_blank" rel="noopener noreferrer" className="font-mono" style={{ color: 'var(--earn-mint)' }}>
                                 tx {shortTx(justPaid.txHash)} ↗
@@ -289,13 +265,15 @@ export default function LibraryPage() {
                       <button
                         className="btn-primary"
                         style={{ fontSize: 12, padding: '7px 14px' }}
-                        onClick={() => readBrief(b.id, b.priceUsd)}
+                        onClick={() => readBrief(b.id)}
                         disabled={isPurchasing}
+                        title="Pays via a separate demo buyer wallet — Circle rejects the agent paying itself"
                       >
                         {isPurchasing
                           ? purchase?.status === 'paying' ? '⟳ Paying x402…' : '⟳ Loading…'
                           : `Read ($${b.priceUsd.toFixed(3)})`}
                       </button>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>🔑 demo buyer wallet</span>
                     </div>
                   </div>
                 </div>
@@ -336,16 +314,20 @@ export default function LibraryPage() {
                       <p style={{ fontSize: 12, color: 'var(--danger-red, #ef4444)', marginTop: 6 }}>✗ {purchase.error}</p>
                     )}
                   </div>
-                  <button
-                    className="btn-primary"
-                    style={{ fontSize: 13, padding: '10px 18px', whiteSpace: 'nowrap', flexShrink: 0 }}
-                    onClick={() => readBrief(b.id, b.priceUsd)}
-                    disabled={isPurchasing}
-                  >
-                    {isPurchasing
-                      ? purchase?.status === 'paying' ? '⟳ x402 pay…' : '⟳'
-                      : `Buy $${b.priceUsd.toFixed(3)}`}
-                  </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                    <button
+                      className="btn-primary"
+                      style={{ fontSize: 13, padding: '10px 18px', whiteSpace: 'nowrap' }}
+                      onClick={() => readBrief(b.id)}
+                      disabled={isPurchasing}
+                      title="Pays via a separate demo buyer wallet — Circle rejects the agent paying itself"
+                    >
+                      {isPurchasing
+                        ? purchase?.status === 'paying' ? '⟳ x402 pay…' : '⟳'
+                        : `Buy $${b.priceUsd.toFixed(3)}`}
+                    </button>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>🔑 demo buyer wallet</span>
+                  </div>
                 </div>
               )
             })}
@@ -403,17 +385,35 @@ export default function LibraryPage() {
                 Sources ({openBrief.sources.length})
               </h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {openBrief.sources.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer"
-                      style={{ color: 'var(--usdc-blue)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
-                      {s.title || s.url}
-                    </a>
-                    <span className="font-mono" style={{ color: s.cost > 0 ? 'var(--usdc-blue)' : 'var(--text-muted)', flexShrink: 0 }}>
-                      {s.cost > 0 ? `$${s.cost.toFixed(4)}` : 'free'}
-                    </span>
-                  </div>
-                ))}
+                {openBrief.sources.map((s, i) => {
+                  const payment = sourcePayments[s.url]
+                  return (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <a href={s.url} target="_blank" rel="noopener noreferrer"
+                          style={{ color: 'var(--usdc-blue)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+                          {s.title || s.url}
+                        </a>
+                        <span className="font-mono" style={{ color: s.cost > 0 ? 'var(--usdc-blue)' : 'var(--text-muted)', flexShrink: 0 }}>
+                          {s.cost > 0 ? `$${s.cost.toFixed(4)}` : 'free'}
+                        </span>
+                      </div>
+                      {payment?.txHash && (
+                        <div style={{ paddingLeft: 2 }}>
+                          {isRealTxHash(payment.txHash) ? (
+                            <a href={txUrl(payment.txHash)} target="_blank" rel="noopener noreferrer" className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'none' }}>
+                              tx {shortTx(payment.txHash)} ↗
+                            </a>
+                          ) : (
+                            <span className="font-mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              settlement {shortTx(payment.txHash)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
               <div style={{ marginTop: 12, display: 'flex', gap: 16 }}>
                 <span className="font-mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>

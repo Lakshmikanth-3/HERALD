@@ -80,6 +80,20 @@ function migrate(db: Database.Database) {
       revenue REAL NOT NULL DEFAULT 0,
       purchases INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS cycle_reports (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL,
+      stage TEXT NOT NULL,             -- 'complete' | 'no-content' | 'synthesis-failed' | 'insufficient-balance' | 'error'
+      sources_count INTEGER NOT NULL DEFAULT 0,
+      session_spent REAL NOT NULL DEFAULT 0,
+      brief_id TEXT,
+      brief_title TEXT,
+      brief_price REAL,
+      error TEXT,
+      cycle_ms INTEGER NOT NULL DEFAULT 0,
+      timestamp INTEGER NOT NULL
+    );
   `);
 
   // tx_hash was added after the initial payments table — SQLite has no
@@ -181,12 +195,10 @@ export function insertPayment(payment: PaymentRecord): void {
   );
 }
 
-export function getRecentPayments(limit = 50): PaymentRecord[] {
-  const db = getDb();
-  const rows = db.prepare('SELECT * FROM payments ORDER BY timestamp DESC LIMIT ?').all(limit) as Record<string, unknown>[];
-  return rows.map(row => ({
+function rowToPaymentRecord(row: Record<string, unknown>): PaymentRecord {
+  return {
     id: row.id as string,
-    type: row.type as 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit',
+    type: row.type as 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit' | 'withdrawal',
     url: row.url as string | undefined,
     briefId: row.brief_id as string | undefined,
     amountUsd: row.amount_usd as number,
@@ -195,7 +207,13 @@ export function getRecentPayments(limit = 50): PaymentRecord[] {
     reason: row.reason as string,
     timestamp: row.timestamp as number,
     txHash: row.tx_hash as string | undefined,
-  }));
+  };
+}
+
+export function getRecentPayments(limit = 50): PaymentRecord[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM payments ORDER BY timestamp DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+  return rows.map(rowToPaymentRecord);
 }
 
 // Real payment receipts for one specific brief — who bought it, for how much,
@@ -206,18 +224,20 @@ export function getBriefReceipts(briefId: string): PaymentRecord[] {
   const rows = db.prepare(
     `SELECT * FROM payments WHERE type = 'received' AND brief_id = ? ORDER BY timestamp DESC`
   ).all(briefId) as Record<string, unknown>[];
-  return rows.map(row => ({
-    id: row.id as string,
-    type: row.type as 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit',
-    url: row.url as string | undefined,
-    briefId: row.brief_id as string | undefined,
-    amountUsd: row.amount_usd as number,
-    destination: row.destination as string | undefined,
-    source: row.source as string | undefined,
-    reason: row.reason as string,
-    timestamp: row.timestamp as number,
-    txHash: row.tx_hash as string | undefined,
-  }));
+  return rows.map(rowToPaymentRecord);
+}
+
+// Real payments the agent made for specific source URLs — lets a brief cite,
+// for each source, exactly what was paid for it and the real settlement
+// reference, not just the cost number already embedded in the brief.
+export function getPaymentsForUrls(urls: string[]): PaymentRecord[] {
+  if (urls.length === 0) return [];
+  const db = getDb();
+  const placeholders = urls.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT * FROM payments WHERE type = 'sent' AND url IN (${placeholders}) ORDER BY timestamp DESC`
+  ).all(...urls) as Record<string, unknown>[];
+  return rows.map(rowToPaymentRecord);
 }
 
 export function getDailyBalance(): { spentToday: number; earnedToday: number } {
@@ -228,6 +248,89 @@ export function getDailyBalance(): { spentToday: number; earnedToday: number } {
   return { spentToday: sent.total, earnedToday: received.total };
 }
 
+export interface NetworkStats {
+  briefsPublished: number;
+  totalSpentUsd: number;
+  totalEarnedUsd: number;
+  totalSourceSalesUsd: number;
+  paymentsCount: number;
+  sourcesPurchased: number;
+}
+
+// All-time aggregates for the public /network dashboard — every figure is a
+// real SUM/COUNT over the payments/briefs tables, nothing estimated.
+export function getNetworkStats(): NetworkStats {
+  const db = getDb();
+  const sum = (type: string) =>
+    (db.prepare(`SELECT COALESCE(SUM(amount_usd), 0) as total FROM payments WHERE type = ?`).get(type) as { total: number }).total;
+  const count = (type: string) =>
+    (db.prepare(`SELECT COUNT(*) as n FROM payments WHERE type = ?`).get(type) as { n: number }).n;
+  const briefsPublished = (db.prepare(`SELECT COUNT(*) as n FROM briefs`).get() as { n: number }).n;
+  const paymentsCount = (db.prepare(`SELECT COUNT(*) as n FROM payments`).get() as { n: number }).n;
+
+  return {
+    briefsPublished,
+    totalSpentUsd: sum('sent'),
+    totalEarnedUsd: sum('received'),
+    totalSourceSalesUsd: sum('source_sale'),
+    paymentsCount,
+    sourcesPurchased: count('sent'),
+  };
+}
+
+// ── Cycle reports ─────────────────────────────────────────────────────────────
+// One row per agent cycle (whatever the outcome — a published brief, no
+// content, a synthesis failure, insufficient balance, or an error) so the
+// Economy page can show real cycle-by-cycle history, not just the latest one.
+
+export interface CycleReport {
+  id: string;
+  topic: string;
+  stage: 'complete' | 'no-content' | 'synthesis-failed' | 'insufficient-balance' | 'error';
+  sourcesCount: number;
+  sessionSpent: number;
+  briefId?: string;
+  briefTitle?: string;
+  briefPrice?: number;
+  error?: string;
+  cycleMs: number;
+  timestamp: number;
+}
+
+export function insertCycleReport(report: CycleReport): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO cycle_reports (id, topic, stage, sources_count, session_spent, brief_id, brief_title, brief_price, error, cycle_ms, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    report.id, report.topic, report.stage, report.sourcesCount, report.sessionSpent,
+    report.briefId ?? null, report.briefTitle ?? null, report.briefPrice ?? null,
+    report.error ?? null, report.cycleMs, report.timestamp
+  );
+}
+
+export function getRecentCycleReports(limit = 20): CycleReport[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM cycle_reports ORDER BY timestamp DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+  return rows.map(row => ({
+    id: row.id as string,
+    topic: row.topic as string,
+    stage: row.stage as CycleReport['stage'],
+    sourcesCount: row.sources_count as number,
+    sessionSpent: row.session_spent as number,
+    // SQLite returns `null` for empty columns, not `undefined` — `as` doesn't
+    // convert it, so a `!== undefined` check downstream would pass right
+    // through to a null and crash on the first .toFixed() call. Coalesce here
+    // instead of relying on every call site to know that.
+    briefId: (row.brief_id as string | null) ?? undefined,
+    briefTitle: (row.brief_title as string | null) ?? undefined,
+    briefPrice: (row.brief_price as number | null) ?? undefined,
+    error: (row.error as string | null) ?? undefined,
+    cycleMs: row.cycle_ms as number,
+    timestamp: row.timestamp as number,
+  }));
+}
+
 // ── Feed history ──────────────────────────────────────────────────────────────
 // Reconstructs past economy events (payments sent/received/skipped, briefs
 // published) from the DB so the Economy page's Live Feed and FlowGraph never
@@ -236,7 +339,7 @@ export function getDailyBalance(): { spentToday: number; earnedToday: number } {
 // straight into the same event-processing code paths as live SSE events.
 export interface FeedHistoryItem {
   id: string;
-  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:deposit';
+  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:deposit' | 'agent:withdrawal';
   data: Record<string, unknown>;
   timestamp: number; // ms, to match EconomyEvent.timestamp (Date.now())
 }
@@ -244,7 +347,7 @@ export interface FeedHistoryItem {
 export function getFeedHistory(limit = 50): FeedHistoryItem[] {
   const db = getDb();
   const paymentRows = db.prepare(
-    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'skipped', 'deposit') ORDER BY timestamp DESC LIMIT ?`
+    `SELECT * FROM payments WHERE type IN ('sent', 'received', 'skipped', 'deposit', 'withdrawal') ORDER BY timestamp DESC LIMIT ?`
   ).all(limit) as Record<string, unknown>[];
   const briefRows = db.prepare(
     `SELECT * FROM briefs ORDER BY published_at DESC LIMIT ?`
@@ -253,7 +356,7 @@ export function getFeedHistory(limit = 50): FeedHistoryItem[] {
   const items: FeedHistoryItem[] = [];
 
   for (const p of paymentRows) {
-    const type = p.type as 'sent' | 'received' | 'skipped' | 'deposit';
+    const type = p.type as 'sent' | 'received' | 'skipped' | 'deposit' | 'withdrawal';
     const timestamp = (p.timestamp as number) * 1000;
     if (type === 'deposit') {
       items.push({
@@ -263,6 +366,19 @@ export function getFeedHistory(limit = 50): FeedHistoryItem[] {
         data: {
           amountUsd: p.amount_usd,
           depositTxHash: p.tx_hash,
+        },
+      });
+      continue;
+    }
+    if (type === 'withdrawal') {
+      items.push({
+        id: p.id as string,
+        type: 'agent:withdrawal',
+        timestamp,
+        data: {
+          amountUsd: p.amount_usd,
+          destinationAddress: p.destination,
+          txHash: p.tx_hash,
         },
       });
       continue;

@@ -17,7 +17,9 @@ import { getHeraldWalletAddress } from '../../agent/secrets';
 import { getCircleEvmSigner } from '../../agent/circleSign';
 import { depositToGateway } from '../../agent/gateway';
 import { BatchEvmScheme } from '@circle-fin/x402-batching/client';
-import { getRecentPayments, getDailyBalance, getConfig, insertPayment, getFeedHistory } from '../../shared/db';
+import { getRecentPayments, getDailyBalance, getConfig, insertPayment, getFeedHistory, getNetworkStats, getRecentCycleReports } from '../../shared/db';
+import { buyBriefAsDemoWallet } from '../../agent/demoBuyer';
+import { withdrawEarnings } from '../../agent/withdraw';
 import { emit, eventBus } from '../../shared/events';
 import type { EconomyEvent } from '../../shared/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -40,6 +42,19 @@ router.get('/status', (req: Request, res: Response) => {
     walletAddress: process.env.HERALD_WALLET_ADDRESS ?? null,
     daily,
   });
+});
+
+// GET /api/agent/cycles — real per-cycle history (one row per run, whatever
+// its outcome), for the Economy page's expandable cycle report cards.
+router.get('/cycles', (req: Request, res: Response) => {
+  const limit = Math.min(parseInt((req.query.limit as string) ?? '20', 10), 100);
+  res.json(getRecentCycleReports(limit));
+});
+
+// GET /api/agent/network-stats — public, all-time aggregates for the
+// no-auth /network dashboard. Every figure is a real SUM/COUNT, no estimates.
+router.get('/network-stats', (req: Request, res: Response) => {
+  res.json(getNetworkStats());
 });
 
 // GET /api/agent/chain-info — public, non-secret contract + wallet addresses,
@@ -196,6 +211,29 @@ router.post('/pay', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/agent/demo-buy
+// Buys a live brief for real, paid from a separate "demo buyer wallet"
+// (src/agent/demoBuyer.ts) rather than the agent's own wallet. In this
+// single-instance deployment every brief in the Library is the agent's own,
+// and Circle's Gateway facilitator correctly rejects a wallet paying itself
+// as `self_transfer` — so this is what makes the "Buy" button in the UI
+// actually complete a real x402 purchase instead of always failing.
+router.post('/demo-buy', async (req: Request, res: Response) => {
+  const { briefId } = req.body as { briefId?: string };
+  if (!briefId) {
+    res.status(400).json({ error: 'briefId is required' });
+    return;
+  }
+
+  try {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.HERALD_API_PORT ?? '3001'}`;
+    const result = await buyBriefAsDemoWallet(briefId, apiBase);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // POST /api/agent/deposit
 // Deposits USDC into Circle Gateway via two real on-chain transactions
 // (ERC20 approve + GatewayWallet.deposit). Required before the agent can
@@ -229,6 +267,54 @@ router.post('/deposit', async (req: Request, res: Response) => {
         approvalTxHash: result.approvalTxHash,
       });
     }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/agent/withdraw
+// Real on-chain USDC transfer out of the agent wallet to a destination the
+// user supplies (see agent/withdraw.ts). This is the agent's own raw wallet
+// balance, not its Circle Gateway balance — the two are separate (see
+// agent/gateway.ts's header comment), so this doesn't touch funds already
+// deposited into Gateway for x402 spending.
+router.post('/withdraw', async (req: Request, res: Response) => {
+  const { amountUsd, destinationAddress } = req.body as { amountUsd?: number; destinationAddress?: string };
+
+  if (typeof amountUsd !== 'number' || amountUsd <= 0) {
+    res.status(400).json({ error: 'amountUsd must be a positive number' });
+    return;
+  }
+  if (!destinationAddress || !/^0x[a-fA-F0-9]{40}$/.test(destinationAddress)) {
+    res.status(400).json({ error: 'destinationAddress must be a valid EVM address' });
+    return;
+  }
+
+  try {
+    const balance = await getAgentBalance();
+    if (amountUsd > balance.usdcBalance) {
+      res.status(400).json({ error: `Insufficient balance: wallet holds $${balance.usdcBalance.toFixed(4)}, requested $${amountUsd.toFixed(4)}` });
+      return;
+    }
+
+    const result = await withdrawEarnings(amountUsd, destinationAddress);
+
+    insertPayment({
+      id: uuidv4(),
+      type: 'withdrawal',
+      amountUsd,
+      destination: destinationAddress,
+      reason: `Withdrew $${amountUsd.toFixed(4)} USDC to ${destinationAddress}`,
+      timestamp: Math.floor(Date.now() / 1000),
+      txHash: result.txHash,
+    });
+    emit('agent:withdrawal', {
+      amountUsd,
+      destinationAddress,
+      txHash: result.txHash,
+    });
 
     res.json(result);
   } catch (err) {

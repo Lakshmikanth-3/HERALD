@@ -30,6 +30,7 @@ export default function HeraldNav({ topic }: { topic?: string }) {
         <Link href="/deploy"        className={`nav-link ${pathname.startsWith('/deploy')        ? 'active' : ''}`}>Deploy</Link>
         <Link href="/economy"       className={`nav-link ${pathname.startsWith('/economy')       ? 'active' : ''}`}>Economy</Link>
         <Link href="/library"       className={`nav-link ${pathname.startsWith('/library')       ? 'active' : ''}`}>Library</Link>
+        <Link href="/network"       className={`nav-link ${pathname.startsWith('/network')       ? 'active' : ''}`}>Network</Link>
         <Link href="/how-it-works"  className={`nav-link ${pathname.startsWith('/how-it-works')  ? 'active' : ''}`}>How it works</Link>
       </div>
 

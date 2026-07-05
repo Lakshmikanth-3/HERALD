@@ -12,7 +12,7 @@
 
 import { Router, Request, Response } from 'express';
 import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server';
-import { getAllBriefs, getBrief, incrementBriefRevenue, insertPayment, getBriefReceipts } from '../../shared/db';
+import { getAllBriefs, getBrief, incrementBriefRevenue, insertPayment, getBriefReceipts, getPaymentsForUrls } from '../../shared/db';
 import { emit } from '../../shared/events';
 import {
   X402_NETWORK,
@@ -99,6 +99,23 @@ router.get('/:id/receipts', (req: Request, res: Response) => {
     txHash: p.txHash,
   }));
   res.json(receipts);
+});
+
+// GET /api/briefs/:id/source-payments — real, per-source proof of what the
+// agent paid to read each cited source (not the brief's paid content itself,
+// just the spend-side receipts) — public/free, same spirit as /receipts.
+router.get('/:id/source-payments', (req: Request, res: Response) => {
+  const briefId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const brief = getBrief(briefId as string);
+  if (!brief) { res.status(404).json({ error: 'Brief not found' }); return; }
+  const urls = brief.sources.map(s => s.url);
+  const payments = getPaymentsForUrls(urls).map(p => ({
+    url: p.url,
+    amountUsd: p.amountUsd,
+    timestamp: p.timestamp,
+    txHash: p.txHash,
+  }));
+  res.json(payments);
 });
 
 function buildPaymentRequirements(priceUsd: number, payTo: string): PaymentRequirements {
@@ -223,7 +240,11 @@ router.get('/:id', async (req: Request, res: Response) => {
       payer: buyerAddress,
     })).toString('base64'));
 
-    res.json(brief);
+    // Re-fetch: `brief` was read before incrementBriefRevenue() above ran, so
+    // returning it as-is would hand the buyer a stale revenue/purchases count
+    // — a real, if minor, money-integrity bug (the very payment they just
+    // made wouldn't be reflected in their own response).
+    res.json(getBrief(brief.id));
   } catch (err) {
     res.status(500).json({ error: `Payment verification error: ${(err as Error).message}` });
   }

@@ -28,8 +28,9 @@ export interface PaymentRecord {
   // 'source_sale' = revenue to the sources treasury (a separate wallet/actor
   // from the agent's own wallet) — excluded from the agent's own daily P&L.
   // 'deposit' = a real on-chain Circle Gateway deposit (approve + deposit),
-  // not a purchase — also excluded from getDailyBalance's spent/earned sums.
-  type: 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit';
+  // 'withdrawal' = a real on-chain transfer out of the agent wallet — neither
+  // is a purchase, and both are excluded from getDailyBalance's sums.
+  type: 'sent' | 'received' | 'skipped' | 'source_sale' | 'deposit' | 'withdrawal';
   url?: string;
   briefId?: string;
   amountUsd: number;
@@ -100,7 +101,7 @@ export interface AgentBalance {
 
 export interface EconomyEvent {
   id: string;
-  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:cycle:start' | 'agent:cycle:end' | 'agent:low-balance' | 'agent:deposit';
+  type: 'payment:sent' | 'payment:received' | 'payment:skipped' | 'brief:published' | 'agent:cycle:start' | 'agent:cycle:end' | 'agent:low-balance' | 'agent:deposit' | 'agent:withdrawal' | 'discovery:bought' | 'discovery:skipped';
   data: Record<string, unknown>;
   timestamp: number;
 }

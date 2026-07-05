@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { addressUrl, shortAddr } from '../../lib/explorer'
+import { addressUrl, txUrl, shortAddr, shortTx } from '../../lib/explorer'
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 interface Props {
   spentToday: number
@@ -20,6 +22,12 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
       ? 'var(--warn-amber)'
       : '#EF4444'
   const [copied, setCopied] = useState(false)
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [destination, setDestination] = useState('')
+  const [amount, setAmount] = useState('')
+  const [status, setStatus] = useState<'idle' | 'pending' | 'error' | 'done'>('idle')
+  const [error, setError] = useState('')
+  const [resultTxHash, setResultTxHash] = useState<string | undefined>(undefined)
 
   function copyWallet() {
     if (!walletAddress) return
@@ -28,8 +36,38 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
     setTimeout(() => setCopied(false), 1500)
   }
 
+  async function submitWithdraw() {
+    const amountNum = parseFloat(amount)
+    if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
+      setStatus('error'); setError('Enter a valid EVM address (0x...)')
+      return
+    }
+    if (!amountNum || amountNum <= 0 || amountNum > walletBalance) {
+      setStatus('error'); setError(`Enter an amount between 0 and $${walletBalance.toFixed(4)}`)
+      return
+    }
+    setStatus('pending')
+    setError('')
+    try {
+      const res = await fetch(`${API}/api/agent/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amountUsd: amountNum, destinationAddress: destination }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setStatus('error'); setError(data.error ?? `HTTP ${res.status}`)
+        return
+      }
+      setResultTxHash(data.txHash)
+      setStatus('done')
+    } catch (err) {
+      setStatus('error'); setError((err as Error).message)
+    }
+  }
+
   return (
-    <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 20, overflowY: 'auto' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -67,6 +105,54 @@ export default function BalanceCard({ spentToday, earnedToday, walletBalance, is
             >
               Arc explorer ↗
             </a>
+          </div>
+        )}
+        {walletAddress && (
+          <button
+            onClick={() => setWithdrawOpen(o => !o)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', padding: 0, marginTop: 6 }}
+          >
+            {withdrawOpen ? 'Cancel withdraw ▲' : 'Withdraw ▾'}
+          </button>
+        )}
+        {withdrawOpen && (
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <input
+              className="input"
+              placeholder="Destination address (0x...)"
+              value={destination}
+              onChange={e => setDestination(e.target.value)}
+              style={{ fontSize: 12, padding: '6px 10px' }}
+            />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                className="input"
+                placeholder={`Amount (max $${walletBalance.toFixed(4)})`}
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                style={{ fontSize: 12, padding: '6px 10px', flex: 1 }}
+              />
+              <button
+                className="btn-primary"
+                style={{ fontSize: 12, padding: '6px 12px' }}
+                onClick={submitWithdraw}
+                disabled={status === 'pending'}
+              >
+                {status === 'pending' ? '⟳' : 'Send'}
+              </button>
+            </div>
+            {status === 'error' && (
+              <p style={{ fontSize: 11, color: 'var(--danger-red, #ef4444)' }}>✗ {error}</p>
+            )}
+            {status === 'done' && (
+              <p style={{ fontSize: 11, color: 'var(--earn-mint)' }}>
+                ✓ Withdrawn{resultTxHash && (
+                  <> — <a href={txUrl(resultTxHash)} target="_blank" rel="noopener noreferrer" className="font-mono" style={{ color: 'var(--earn-mint)' }}>
+                    tx {shortTx(resultTxHash)} ↗
+                  </a></>
+                )}
+              </p>
+            )}
           </div>
         )}
       </div>

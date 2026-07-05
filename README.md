@@ -32,13 +32,18 @@ force-directed graph of who it paid and who paid it, in real time.
 every real wallet and contract address (agent wallet, sources treasury wallet,
 USDC contract, Gateway wallet contract), each linking straight to the
 [Arc testnet explorer](https://testnet.arcscan.app). The Economy page's Live
-Feed and each brief's "Payment receipts" expander in the Library link real
-transaction hashes the same way — a genuine on-chain hash (e.g. a Circle
-Gateway deposit's approve/deposit transactions) links out; a Circle Gateway
-x402 *settlement id* (its batched-payment API returns an id, not an on-chain
-hash, since batched payments settle on-chain later) is labeled "settlement"
-and deliberately left unlinked rather than pointing at a URL that wouldn't
-resolve.
+Feed, each brief's "Payment receipts" expander in the Library, and the public
+`/network` dashboard all link real transaction hashes the same way — a
+genuine on-chain hash (e.g. a Circle Gateway deposit's approve/deposit
+transactions, or a withdrawal) links out; a Circle Gateway x402 *settlement
+id* (its batched-payment API returns an id, not an on-chain hash, since
+batched payments settle on-chain later) is labeled "settlement" and
+deliberately left unlinked rather than pointing at a URL that wouldn't
+resolve. The Library's "Read"/"Buy" buttons pay through a separate, real
+**demo buyer wallet** (clearly labeled in the UI) rather than the agent's own
+wallet — Circle's Gateway facilitator correctly rejects a wallet paying
+itself as `self_transfer`, confirmed live, so a genuinely independent buyer
+is what actually completes a purchase in this single-agent deployment.
 
 ---
 
@@ -167,11 +172,20 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
   Both return real HTTP 402s and verify payment via Circle's Gateway
   batching API.
 - `src/app/` — the landing page (`page.tsx` + `components/landing/`), Deploy
-  (onboarding), Economy (live dashboard), Library (your briefs +
-  marketplace), and How it works (the x402 loop explained, with a live
-  wallet explorer link and a copyable curl snippet that reproduces a real
-  402 response). The landing page's Stats section fetches real numbers from
-  your own API — no placeholder marketing copy.
+  (onboarding), Economy (live dashboard, with per-cycle report history),
+  Library (your briefs + marketplace, with source- and brief-level payment
+  receipts), the public read-only `/network` dashboard, and How it works
+  (the x402 loop explained, with a live wallet explorer link and a copyable
+  curl snippet that reproduces a real 402 response). The landing page's
+  Stats section fetches real numbers from your own API — no placeholder
+  marketing copy.
+- `src/agent/demoBuyer.ts` — a separate, real Arc testnet wallet the Library
+  UI pays from, lazily provisioned and funded on first use. `src/agent/
+  agentToAgent.ts` — the agent checks the marketplace for another agent's
+  relevant, affordable brief before researching its own (real x402 purchase
+  logic; see Known limitations for why it's always a documented no-op here).
+  `src/agent/withdraw.ts` — a real on-chain USDC transfer out of the agent's
+  own wallet, exposed as a Withdraw form on the Economy page's Balance card.
 - `src/components/ui/` + `src/lib/utils.ts` — small shadcn-style primitives
   (Button, Accordion) backing the landing page, ported from
   `electric-landing-page-template/` and adapted onto the existing Tailwind
@@ -192,6 +206,17 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
 
 ## Known limitations
 
+- **Agent-to-agent purchasing is real code with a single-instance no-op.**
+  Every cycle, the agent checks `/api/marketplace` for another agent's brief
+  worth buying (`src/agent/agentToAgent.ts`) — real scoring, a real x402
+  purchase attempt if one clears the relevance/budget bars. But this
+  deployment runs one HERALD instance, `/api/marketplace` only lists this
+  instance's own SQLite briefs, and listings don't even carry a remote API
+  URL to buy from one. Every candidate therefore shares this agent's own
+  wallet address and is correctly self-excluded (Circle's Gateway facilitator
+  rejects same-wallet payments as `self_transfer` anyway — confirmed live).
+  The code path would complete a genuine cross-agent purchase the moment a
+  second, truly independent HERALD instance existed to buy from.
 - **1Claw's vault occasionally answers a secret read with its own x402
   "payment required" challenge** (HTTP 402, denominated in real Base
   mainnet USDC — not this project's Arc testnet fake money), most likely a

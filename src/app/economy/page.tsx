@@ -9,6 +9,7 @@ import FlowGraph from './FlowGraph'
 import BriefPreview from './BriefPreview'
 import { CycleStepper, FirstRunCard, CycleToast } from './CycleStatus'
 import type { CycleStep, CycleSummary } from './CycleStatus'
+import CycleReports from './CycleReports'
 import type { EconomyEvent, BriefMetadata } from '../../shared/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
@@ -41,6 +42,7 @@ export default function EconomyPage() {
   const [cycleStep, setCycleStep] = useState<CycleStep | null>(null)
   const [cycleActive, setCycleActive] = useState(false)
   const [cycleSummary, setCycleSummary] = useState<CycleSummary | null>(null)
+  const [cycleReportsKey, setCycleReportsKey] = useState(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -154,6 +156,9 @@ export default function EconomyPage() {
       setCycleSummary(summary)
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
       toastTimerRef.current = setTimeout(() => setCycleSummary(null), 8000)
+      // A cycle just ended (whatever the outcome) — a new row exists in
+      // cycle_reports, so refetch the list.
+      setCycleReportsKey(k => k + 1)
     }
   }, [])
 
@@ -255,6 +260,10 @@ export default function EconomyPage() {
         <div style={{ gridRow: '2', gridColumn: '2', minHeight: 0 }}>
           <BriefPreview brief={latestBrief} />
         </div>
+      </div>
+
+      <div style={{ padding: '0 20px 20px' }}>
+        <CycleReports refreshKey={cycleReportsKey} />
       </div>
 
       {cycleSummary && (
