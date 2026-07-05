@@ -73,11 +73,20 @@ async function waitForTransaction(id: string, timeoutMs = 60000): Promise<{ stat
     if (!res.ok) {
       throw new Error(`Failed to poll transaction ${id}: ${res.status} ${await res.text()}`);
     }
-    const data = await res.json() as { data: { transaction: { state: string; txHash?: string } } };
-    const { state, txHash } = data.data.transaction;
+    const data = await res.json() as { data: { transaction: { state: string; txHash?: string; errorReason?: string; errorDetails?: string } } };
+    const { state, txHash, errorReason, errorDetails } = data.data.transaction;
 
     if (TERMINAL_SUCCESS.has(state)) return { state, txHash };
-    if (TERMINAL_FAILURE.has(state)) throw new Error(`Transaction ${id} ended in state ${state}`);
+    if (TERMINAL_FAILURE.has(state)) {
+      // Circle's transaction record carries the real on-chain revert reason
+      // (e.g. "INSUFFICIENT_TOKEN" / "ERC20: transfer amount exceeds
+      // balance") — surfacing only the transaction id and state left users
+      // staring at an opaque UUID with no way to tell a real, correctable
+      // problem (wallet underfunded for the requested deposit) from an
+      // actual system failure.
+      const reason = errorReason ? `${errorReason}${errorDetails ? ` — ${errorDetails}` : ''}` : `ended in state ${state}`;
+      throw new Error(`Deposit transaction failed: ${reason}`);
+    }
 
     await new Promise(resolve => setTimeout(resolve, 2000));
   }

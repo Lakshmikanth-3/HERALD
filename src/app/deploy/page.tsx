@@ -28,6 +28,19 @@ function DeployForm() {
   const [deploying, setDeploying] = useState(false)
   const [deployStage, setDeployStage] = useState('')
   const [error, setError] = useState('')
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
+
+  // Real wallet balance, so an underfunded budget is preventable up front
+  // instead of a confusing on-chain revert after clicking Deploy — the
+  // weekly budget slider's max ($10) has no relationship to what's actually
+  // in the wallet, and the deposit step is a real transfer that fails if
+  // you ask for more than the wallet holds.
+  useEffect(() => {
+    fetch(`${API}/api/agent/balance`)
+      .then(r => r.ok ? r.json() : null)
+      .then(b => { if (b) setWalletBalance(b.usdcBalance) })
+      .catch(() => {})
+  }, [])
 
   const sessionsPerDay = 6
   const sourcesPerSession = Math.floor(weeklyBudget / (7 * sessionsPerDay * 0.003))
@@ -38,6 +51,10 @@ function DeployForm() {
   async function handleDeploy() {
     if (!topic.trim() || topic.trim().length < 3) {
       setError('Please enter a research topic (at least 3 characters)')
+      return
+    }
+    if (walletBalance !== null && weeklyBudget > walletBalance) {
+      setError(`Your agent wallet only holds $${walletBalance.toFixed(4)} USDC — lower the weekly budget to $${walletBalance.toFixed(2)} or less, or fund the wallet first (see the README's TestMint step).`)
       return
     }
     setDeploying(true)
@@ -149,6 +166,12 @@ function DeployForm() {
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>$1.00</span>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>$10.00</span>
               </div>
+              {walletBalance !== null && (
+                <p style={{ fontSize: 12, color: weeklyBudget > walletBalance ? 'var(--warn-amber)' : 'var(--text-muted)', marginTop: 8 }}>
+                  Wallet holds <span className="font-mono">${walletBalance.toFixed(4)}</span> USDC right now
+                  {weeklyBudget > walletBalance && ' — that\'s less than this budget, deposit would fail'}
+                </p>
+              )}
             </div>
 
             {/* Brief price floor slider */}
