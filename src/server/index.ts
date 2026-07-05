@@ -14,8 +14,28 @@ import { startAgentScheduler } from '../agent/index';
 const app = express();
 const PORT = parseInt(process.env.HERALD_API_PORT ?? '3001', 10);
 
-const origin = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:3001'];
-app.use(cors({ origin }));
+// The Vercel deployment is frontend-only (see README § Known Limitations) —
+// viewers run this Express server locally and point their browser at the
+// public Vercel URL to see live data. That means requests legitimately
+// arrive with `Origin: https://lepton-blue.vercel.app` (or a preview-deploy
+// hash like `lepton-<hash>-<team>.vercel.app`), not just localhost. Without
+// allowing those origins, the browser silently blocks every response
+// (BackendStatusBanner then reports "not reachable" even though the server
+// is up and directly curl-able, since curl doesn't enforce CORS).
+const explicitOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',')
+  : ['http://localhost:3000', 'http://localhost:3001'];
+const VERCEL_ORIGIN_PATTERN = /^https:\/\/lepton(-[a-z0-9]+)*\.vercel\.app$/;
+
+app.use(cors({
+  origin(requestOrigin, callback) {
+    if (!requestOrigin || explicitOrigins.includes(requestOrigin) || VERCEL_ORIGIN_PATTERN.test(requestOrigin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${requestOrigin} not allowed by CORS`));
+    }
+  },
+}));
 app.use(express.json());
 
 // ── Routes ────────────────────────────────────────────────────────────────────
