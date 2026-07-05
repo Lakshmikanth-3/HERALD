@@ -25,8 +25,16 @@ The same agent wallet is both the buyer (paying sources) and the seller
 (charging for briefs) — HERALD runs a live, sub-cent, two-sided x402 economy,
 not a demo of one side of it.
 
-Live dashboard: watch the agent's balance, its spend/earn feed, and a
-force-directed graph of who it paid and who paid it, in real time.
+Live dashboard: watch the agent's balance, a scrolling payment ticker, an
+icon-based cycle stepper, a live decision log ("Agent Reasoning"), and a
+force-directed graph of who it paid and who paid it (sources, buyers, and
+other agents it bought marketplace briefs from) — all in real time, all
+built from the same events and DB rows the API returns, nothing staged for
+appearances. A dedicated brief page (`/library/:id`) shows the full
+Gemini-written body plus a real payment-receipt manifest — every citation
+linked to its own on-chain payment. `/economy?demo=1` gives a clean,
+zoomed-in "stage" view for screen recordings (nav hidden, reasoning panel
+open) — presentational only, no functional change.
 
 ## Verify it's real
 
@@ -176,8 +184,8 @@ the Deploy screen, and watch it run on the Economy screen.
 | `npm run seed:vault` | Push secrets from `.env.local` into the 1Claw vault |
 | `npm run seed:sources` | Populate real x402-gated original content the agent can buy |
 | `npm run test` | Integration tests against a running `dev` server — real cycle trigger, real x402 purchase via the demo buyer wallet, public API checks, agent-to-agent self-exclusion check |
-| `npm run test:unit` | Pure logic unit tests, no server needed — `priceBrief()`, `scoreSource()`, `formatSigned()`, `dedupeNewById()` |
-| `npm run test:playwright` | Real Chromium checks against a running `dev` server — every page at 1440px/375px (zero console errors, zero overflow), a live triggered cycle (bounded height, no duplicate-key warnings) |
+| `npm run test:unit` | Pure logic unit tests, no server needed — `priceBrief()`, `scoreSource()`, `formatSigned()`, `dedupeNewById()`, `relevanceScore()`, Live Feed skip-grouping (30 checks) |
+| `npm run test:playwright` | Real Chromium checks against a running `dev` server — every page at 1440px/375px, overlap detection, a live triggered cycle, the payment ticker, the brief detail page, skip-grouping, `?demo=1`, and reduced-motion final-state assertions (38 checks) |
 | `npm run test:all` | Everything above in sequence: lint → typecheck → unit → integration → Playwright |
 | `npm run demo` | Triggers one real cycle and prints a recording walkthrough: page order, real wallet/explorer links, a live 402 curl repro — see Recording a demo below |
 
@@ -198,23 +206,33 @@ curl command that reproduces a live 402 for whatever brief was just
 published. Nothing in the script is scripted content — it's real output from
 a real cycle, meant to be narrated over, not read from.
 
+For the Economy screen specifically, open `/economy?demo=1` instead of
+`/economy` — same page, same real data, just nav hidden, ~15% larger, and
+the Agent Reasoning panel pre-expanded, so there's less to explain and more
+room in the recording for the ticker/stepper/graph. See `DEMO_SCRIPT.md`
+for a suggested shot-by-shot sequence.
+
 ## Testing
 
 Three layers, all real (no mocked network/DOM):
 
-- **Unit** (`scripts/test-unit.ts`) — pure functions, no server. Includes
-  regression tests for two bugs found this session: the `-$0.0369`-style
-  double-negative sign bug (`formatSigned`) and the FlowGraph event
-  double-processing bug (`dedupeNewById`).
-- **Integration** (`scripts/test-e2e.ts`) — against a running `npm run dev`.
-  Triggers a real agent cycle, verifies the x402 402-then-pay-then-content
-  round trip using the real demo buyer wallet (not a mock payment), and
-  checks the public `/network` APIs and the agent-to-agent self-exclusion
-  behavior.
-- **Browser** (`scripts/test-playwright.ts`) — a real Chromium instance,
-  not jsdom. Sweeps all 6 pages at desktop and mobile widths, and triggers
-  a live cycle while watching for unbounded page growth or duplicate-key
-  warnings (both real bugs this suite would have caught).
+- **Unit** (`scripts/test-unit.ts`, 30 checks) — pure functions, no server.
+  Includes regression tests for real bugs found along the way: the
+  `-$0.0369`-style double-negative sign bug (`formatSigned`), the FlowGraph
+  event double-processing bug (`dedupeNewById`), agent-to-agent relevance
+  matching (`relevanceScore`), and the Live Feed's skip-grouping logic.
+- **Integration** (`scripts/test-e2e.ts`, 10 checks) — against a running
+  `npm run dev`. Triggers a real agent cycle, verifies the x402
+  402-then-pay-then-content round trip using the real demo buyer wallet
+  (not a mock payment), and checks the public `/network` APIs and the
+  agent-to-agent self-exclusion behavior.
+- **Browser** (`scripts/test-playwright.ts`, 38 checks) — a real Chromium
+  instance, not jsdom. Sweeps all 6 pages at desktop and mobile widths;
+  triggers a live cycle while watching for unbounded page growth or
+  duplicate-key warnings; checks the payment ticker doesn't overlap
+  anything, the brief detail page renders its receipt manifest, the Live
+  Feed's skip-grouping expands, `?demo=1` renders cleanly, and no
+  reduced-motion-gated element reports a running CSS animation.
 
 Empty states (no briefs, no history) are covered by code review rather than
 a live check — this suite intentionally never wipes the real SQLite
@@ -245,13 +263,26 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
   Both return real HTTP 402s and verify payment via Circle's Gateway
   batching API.
 - `src/app/` — the landing page (`page.tsx` + `components/landing/`), Deploy
-  (onboarding), Economy (live dashboard, with per-cycle report history),
-  Library (your briefs + marketplace, with source- and brief-level payment
-  receipts), the public read-only `/network` dashboard, and How it works
-  (the x402 loop explained, with a live wallet explorer link and a copyable
-  curl snippet that reproduces a real 402 response). The landing page's
-  Stats section fetches real numbers from your own API — no placeholder
-  marketing copy.
+  (onboarding), Economy (live dashboard: payment ticker, hero cycle stepper,
+  balance card, cinematic force-directed FlowGraph, Live Feed with
+  skip-grouping, the Agent Reasoning decision log, and per-cycle report
+  history), Library (your briefs + marketplace, with source- and
+  brief-level payment receipts, linking out to `/library/:id` for the full
+  reading view), the public read-only `/network` dashboard (network-wide
+  stats, the same FlowGraph, and a real per-cycle net-P&L timeline strip),
+  and How it works (the x402 loop explained, with a live wallet explorer
+  link and a copyable curl snippet that reproduces a real 402 response).
+  The landing page's Stats section fetches real numbers from your own API
+  — no placeholder marketing copy.
+- `src/app/economy/PaymentTicker.tsx`, `ReasoningPanel.tsx` — both derive
+  everything they show from events the agent already emits (real amounts,
+  domains, relevance scores, skip reasons); no new backend fields were
+  needed for either. `src/app/network/CycleTimeline.tsx` reads real rows
+  from `GET /api/agent/cycles`.
+- `src/app/library/[id]/page.tsx` — a dedicated brief reading page: pays for
+  the full content via the demo buyer wallet on demand, then shows the real
+  Gemini body alongside a receipt manifest (who bought the brief, what the
+  agent paid per cited source, with settlement/explorer links for each).
 - `src/agent/demoBuyer.ts` — a separate, real Arc testnet wallet the Library
   UI pays from, lazily provisioned and funded on first use. `src/agent/
   agentToAgent.ts` — the agent checks the marketplace for another agent's

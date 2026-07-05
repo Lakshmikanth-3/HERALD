@@ -2,7 +2,7 @@
 
 **Built for the Lepton Agents Hackathon (Canteen × Circle × Arc)**
 **Live demo:** https://lepton-blue.vercel.app (frontend only — see [Known Limitations](#known-limitations))
-**Report generated:** 2026-07-05
+**Report generated:** 2026-07-06
 
 ---
 
@@ -24,11 +24,19 @@ claim below is backed by a live test performed during development (a real
 transaction hash, a real independent wallet purchase), it's called out
 explicitly.
 
-**Current live state** (at report time):
-- 4 real briefs published
-- 59 real payment records logged (real x402 settlements + skips)
-- $0.1923 real testnet USDC moved through the system total
-- Agent wallet: `0x1fc8b69f563d2f3fe54ca8a693921f53d11eab89`
+**Current live state** (pulled live from the running API at report time):
+- **9 real briefs published**, 21 real third-party purchases across them
+- **378 real payment records** logged (x402 settlements, deposits, and
+  scored-but-skipped sources)
+- **$0.9481** real testnet USDC earned from brief sales, **$0.2347** spent
+  buying sources, **$0.027** in direct paid-article sales — all real Arc
+  testnet movement, not simulated
+- **50 sources purchased** via real x402 nanopayments
+- Agent wallet: `0x1fc8b69f563d2f3fe54ca8a693921f53d11eab89` — currently
+  holding **$7.87 USDC** real testnet balance
+- This is a live, growing ledger — rerun `curl http://localhost:3001/api/agent/network-stats`
+  against a running instance to get the current numbers; don't treat the
+  figures above as static.
 
 ---
 
@@ -68,7 +76,7 @@ Next.js frontend (:3000)  ──HTTP──>  Express API (:3001)  <──>  Circ
 |---|---|---|
 | Agent loop | `src/agent/` | discovery, scoring, x402 buying, Gemini synthesis, brief publishing, Circle wallet ops |
 | API server | `src/server/` | Express routes; `routes/briefs.ts` and `routes/sources.ts` are real x402 gates (buy + sell side) |
-| Frontend | `src/app/` | Landing page + Deploy / Economy / Library screens |
+| Frontend | `src/app/` | Landing page + Deploy / Economy / Library / Network / How-it-works screens |
 | UI primitives | `src/components/ui/`, `src/lib/utils.ts` | shadcn-style Button/Accordion, ported for the landing page |
 | Shared | `src/shared/` | SQLite client, SSE event bus, shared types |
 
@@ -133,6 +141,23 @@ is excluded from the actual app build):
   variables; the Economy dashboard's spend/earn/agent/warning colors were
   deliberately kept separate from the new brand accent since they carry
   real meaning in the live feed.
+- **A new "How it works" page** (`/how-it-works`) — a plain-language walk
+  through the 5-step loop, a real explanation of x402, and a "Verify it's
+  real" panel that pulls live chain-info from the API (agent wallet,
+  sources-treasury wallet, USDC contract, Gateway contract — each with a
+  copy button and a real explorer link) plus a copyable `curl` command that
+  reproduces a genuine HTTP 402 challenge against the most recently
+  published brief.
+- **Motion pass, added this session** — every number that represents real
+  money or a real count (wallet balance, spent/earned/net, brief revenue,
+  Network page stat tiles, Library's total revenue) now counts up from its
+  previous value with an eased `requestAnimationFrame` animation instead of
+  snapping; the Economy sparkline draws itself in along its real measured
+  path length (`getTotalLength()`) rather than appearing instantly; cards
+  and list rows across Economy, Network, Library, Deploy, and How-it-works
+  stagger in on load. All of it is gated behind the existing
+  `useSafeReducedMotion()` hook, so `prefers-reduced-motion` users see the
+  final state immediately with no animation.
 
 ---
 
@@ -150,7 +175,7 @@ and confirmed fixed with a follow-up verification.
 | Buy-side never exercised in practice | Public RSS feeds are free and never return HTTP 402, so the real payment code path never fired | Built a genuine second x402 seller (original paid articles + a separate treasury wallet) so the buy path fires for real |
 | Transient `fetch failed` errors | Stale keep-alive connections on the long-running dev process, observed live against 1Claw and Circle | Added bounded retry to `secrets.ts`, `wallet.ts`, and `discover.ts`'s self-referential fetch |
 | 1Claw vault occasionally 402s | 1Claw's vault answers a secret read with its own x402 "payment required" challenge (real Base mainnet USDC), most likely a rate-limit mechanism; self-resolves within seconds | Retry the specific 402 case with backoff — **never** auto-constructs or sends a payment, since that would be real money on a different chain than this project's testnet economy |
-| Dead "selling price per brief" slider | Value is saved to config but never read — the agent always prices briefs via `priceBrief()`'s cost-based formula | **Flagged, not fixed** — a design decision beyond scope; documented in the README |
+| "Selling price per brief" slider was saved but never read | The agent always priced briefs via `priceBrief()`'s cost-based formula alone | Wired the saved value in as a real price *floor* — `priceBrief(cost, sources, floorUsd)` now returns `max(floorUsd, 2× cost + log(sources) bonus)`, clamped to $0.01–$0.20 (`src/agent/synthesize.ts`, `src/agent/publish.ts`) |
 
 ### Frontend
 
@@ -170,6 +195,25 @@ Deploy and Library were both re-checked against the same bug classes
 clean — Library in particular is structurally immune since it doesn't
 subscribe to SSE and replaces its state on each poll rather than appending.
 
+### Round 2 — found by actually using the deployed app, not just testing it
+
+A second pass of bugs surfaced by driving the real app in a browser as a
+judge or user would, rather than through automated checks alone:
+
+| Bug | Root cause | Fix |
+|---|---|---|
+| Economy page cards overlapping on load | A `height: 100vh` flex column had the growing Cycle History list appended as a flex *sibling* instead of living below the fold — it got squeezed/overlapped instead of letting the page scroll | Split into a fixed-height `.economy-dashboard` section (nav + stepper + grid) and a separate scrollable section below it for Cycle History; added an automated overlap-detection Playwright check (`scripts/test-playwright.ts`) that measures real `getBoundingClientRect()` overlap between cards so this can't silently regress |
+| Off-topic queries produced irrelevant briefs (e.g. "trading" not recognized as finance) | `detectCategory()` matched whole words only (`/trade/`), which never matches "trading" | Rewrote the category patterns as word-stems (`financ\|market\|stock\|econom\|trad\|invest`, etc.) across every topic category |
+| Agent Flow graph on the Economy page stayed permanently empty despite real history existing | Two compounding bugs: (1) `getFeedHistory()` filled its result window with low-value `skipped` rows before real purchase/sale rows, crowding them out; (2) the FlowGraph's history-seeding `useEffect` had an empty dependency array, so it only ever ran once against the not-yet-loaded (empty) history | Query real economic events (sent/received/deposit/withdrawal) first and only backfill remaining room with skips; fixed the effect's dependency array to `[history]` (safe — `dedupeNewById` already prevents re-processing) |
+| Network page's flow-graph canvas rendered ~2352px tall instead of a normal card height | The wrapper `div` used `minHeight: 360` (not a definite height); combined with CSS Grid's default row-stretch, every cell in the row inherited the tallest sibling's natural content height | Changed to a definite `height: 480` on both the graph and the adjacent Recent Activity card |
+| Demo buyer wallet (used for judge/demo purchases) ran out of funds mid-testing | Its original funding amount (`$0.6`) was sized for a much shorter test run | Wrote a reusable top-up script (`scripts/topup-demo-buyer.ts`) that re-funds the *already-provisioned* wallet via a real on-chain transfer + real Gateway deposit; raised the default funding amount for any future fresh deployment from $0.6 to $2.1 |
+| A failed Circle Gateway deposit only reported "ended in state FAILED" with no reason | `waitForTransaction()` discarded Circle's real `errorReason`/`errorDetails` fields and only surfaced the terminal state | Now surfaces Circle's actual error reason/details; the Deploy page also fetches the real wallet balance up front and blocks an over-budget deploy client-side with a clear message, before it ever reaches the chain |
+
+All fixes above went through the same discipline as round 1: root-caused
+against real behavior (never assumed), fixed, then verified with
+`tsc --noEmit`, `next lint`, and the full `npm run test:all` suite passing
+before commit.
+
 ---
 
 ## 7. Known Limitations
@@ -181,8 +225,6 @@ subscribe to SSE and replaces its state on each poll rather than appending.
   navigable, but every API-backed feature (wallet balance, live feed,
   deploy, buy) only works if a backend is also reachable — currently that
   means running it locally on the same machine that's viewing the page.
-- **The "selling price per brief" slider doesn't affect pricing** (see
-  bug table above) — not yet reconciled with the dynamic pricing formula.
 - **1Claw's vault occasionally demands a real-money x402 payment** as an
   apparent rate-limit fallback. The code retries automatically but will
   never pay it; if it persists past the retry window, wait and retry
@@ -219,13 +261,29 @@ npm run dev                       # frontend :3000 + API :3001
 
 ## 9. Testing Summary
 
-- `npm run test` (`scripts/test-e2e.ts`) — 6/6 passing against a live server.
-- Playwright-driven checks across all 4 pages (`/`, `/deploy`, `/economy`,
-  `/library`) at desktop and mobile widths — 0 console errors, 0 horizontal
-  overflow, confirmed both statically and under a real live agent cycle.
-- Manual real-money-rail tests: Gateway deposit (real tx hashes), buy-side
-  x402 settlement, sell-side x402 settlement from an independently
-  provisioned third-party wallet.
+`npm run test:all` runs all three layers in sequence and currently passes
+end to end (`lint` → `tsc --noEmit` → unit → integration → Playwright):
+
+- **Unit** (`scripts/test-unit.ts`) — 19/19 passing: brief pricing (floor +
+  clamping), source scoring, `formatSigned` sign-placement (regression test
+  for a past `$-0.0369` display bug), and `dedupeNewById` event
+  de-duplication (regression test for the FlowGraph double-processing bug).
+- **Integration** (`scripts/test-e2e.ts`) — 10/10 passing against a live
+  server: health → trigger cycle → verify brief → verify free preview →
+  verify the x402 gate rejects an unpaid request, plus the newer
+  balance/deposit/withdrawal checks added in later phases.
+- **Playwright, real browser** (`scripts/test-playwright.ts`) — 29/29
+  passing across all 5 pages (`/`, `/deploy`, `/economy`, `/library`,
+  `/network`, `/how-it-works`) at desktop and mobile widths: 0 console
+  errors, 0 horizontal overflow, and a dedicated overlap-detection check
+  (pairwise `getBoundingClientRect()` comparison, excluding intentionally
+  `position: fixed` toasts) added this session after the Economy
+  card-overlap bug — verified to both fail against the reintroduced bug and
+  pass against the fix.
+- **Manual real-money-rail tests**: Gateway deposit (real tx hashes),
+  buy-side x402 settlement, sell-side x402 settlement from an independently
+  provisioned third-party wallet, and a live re-triggered cycle used to
+  confirm the topic-categorization fix against a real "trading"-topic query.
 
 ---
 
