@@ -5,6 +5,7 @@ import HeraldNav from '../components/HeraldNav'
 import SSEListener from '../components/SSEListener'
 import LiveFeed, { buildFeedEntry } from '../economy/LiveFeed'
 import PaymentTicker from '../economy/PaymentTicker'
+import CycleTimeline, { type CycleReport } from './CycleTimeline'
 import FlowGraph from '../economy/FlowGraph'
 import { addressUrl, shortAddr } from '../../lib/explorer'
 import { useCountUp } from '../../lib/useCountUp'
@@ -33,14 +34,16 @@ export default function NetworkPage() {
   const [feedEntries, setFeedEntries] = useState<FeedEntry[]>([])
   const [allEvents, setAllEvents] = useState<EconomyEvent[]>([])
   const [flowHistory, setFlowHistory] = useState<EconomyEvent[]>([])
+  const [cycles, setCycles] = useState<CycleReport[]>([])
 
   useEffect(() => {
     async function load() {
       try {
-        const [statsRes, chainRes, historyRes] = await Promise.all([
+        const [statsRes, chainRes, historyRes, cyclesRes] = await Promise.all([
           fetch(`${API}/api/agent/network-stats`),
           fetch(`${API}/api/agent/chain-info`),
           fetch(`${API}/api/agent/feed-history?limit=30`),
+          fetch(`${API}/api/agent/cycles?limit=20`),
         ])
         if (statsRes.ok) setStats(await statsRes.json())
         if (chainRes.ok) setChainInfo(await chainRes.json())
@@ -49,6 +52,7 @@ export default function NetworkPage() {
           setFlowHistory(history)
           setFeedEntries(history.map(buildFeedEntry).filter((e): e is FeedEntry => e !== null).map(e => ({ ...e, historical: true })))
         }
+        if (cyclesRes.ok) setCycles(await cyclesRes.json())
       } catch (e) {
         console.error('Failed to load network stats:', e)
       }
@@ -131,6 +135,10 @@ export default function NetworkPage() {
             <LiveFeed entries={feedEntries} />
           </div>
         </div>
+      </div>
+
+      <div style={{ padding: '0 20px 20px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+        <CycleTimeline cycles={cycles} />
       </div>
     </div>
   )

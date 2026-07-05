@@ -5,6 +5,8 @@ import { priceBrief } from '../src/agent/synthesize';
 import { scoreSource } from '../src/agent/score';
 import { formatSigned } from '../src/lib/format';
 import { dedupeNewById } from '../src/lib/dedupe';
+import { relevanceScore } from '../src/agent/agentToAgent';
+import { groupSkips, type FeedEntry } from '../src/app/economy/LiveFeed';
 import type { Source } from '../src/shared/types';
 
 let passed = 0;
@@ -91,6 +93,49 @@ console.log('\n[dedupeNewById] event de-duplication (regression test for the Flo
 
   const fresh3 = dedupeNewById(seen, batch2);
   assertEqual(fresh3.length, 0, 'a third pass with no new items yields nothing (no re-processing)');
+}
+
+// ── relevanceScore() ─────────────────────────────────────────────────────────
+console.log('\n[relevanceScore] agent-to-agent marketplace matching (src/agent/agentToAgent.ts)');
+assert(
+  relevanceScore('AI regulation', 'AI regulation', 'The EU is finalizing AI regulation rules') > 0.9,
+  'exact-topic candidate scores near-perfect relevance'
+);
+assert(
+  relevanceScore('AI regulation', 'weather forecast', 'Rain expected this weekend') === 0,
+  'unrelated candidate scores zero relevance'
+);
+assert(
+  relevanceScore('quantum computing breakthroughs', 'quantum computing', 'A new breakthroughs paper on qubits') >
+  relevanceScore('quantum computing breakthroughs', 'quantum computing', 'A paper on qubits'),
+  'a candidate matching more of the topic\'s real words scores higher than one matching fewer'
+);
+assertEqual(relevanceScore('a an', 'anything', 'anything'), 0, 'topic with only short (<=3 char) words yields zero — nothing to match on');
+
+// ── groupSkips() ─────────────────────────────────────────────────────────────
+console.log('\n[groupSkips] Live Feed skip-grouping (collapses runs of 3+ consecutive skips)');
+{
+  function skip(id: string): FeedEntry {
+    return { id, type: 'payment:skipped', label: `Skipped -> ${id}`, sublabel: 'Low relevance score: 0.30', timestamp: 0 };
+  }
+  function paid(id: string): FeedEntry {
+    return { id, type: 'payment:sent', label: `Paid -> ${id}`, sublabel: 'x402', amount: 0.001, timestamp: 0 };
+  }
+
+  const belowThreshold = groupSkips([skip('a'), skip('b'), paid('c')]);
+  assertEqual(belowThreshold.length, 3, 'a run of only 2 skips is not grouped (below the 3+ threshold)');
+  assert(belowThreshold.every(i => i.kind === 'entry'), 'all items render as individual entries when no run reaches 3');
+
+  const exactlyThree = groupSkips([skip('a'), skip('b'), skip('c'), paid('d')]);
+  assertEqual(exactlyThree.length, 2, 'a run of exactly 3 skips collapses into 1 group + the following real entry');
+  assertEqual(exactlyThree[0].kind, 'skip-group', 'the first item is the collapsed skip group');
+  if (exactlyThree[0].kind === 'skip-group') {
+    assertEqual(exactlyThree[0].entries.length, 3, 'the group carries all 3 real skip entries for later expansion');
+  }
+
+  const mixedRuns = groupSkips([paid('x'), skip('a'), skip('b'), skip('c'), skip('d'), paid('y'), skip('e')]);
+  assertEqual(mixedRuns.length, 4, 'a real entry, a 4-skip group, another real entry, and a lone trailing skip (below threshold) = 4 render items');
+  assertEqual(mixedRuns[3].kind, 'entry', 'a trailing run of fewer than 3 skips renders as a plain entry, not a group');
 }
 
 console.log(`\n${failed === 0 ? '🎉' : '❌'} ${passed} passed, ${failed} failed`);

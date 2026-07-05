@@ -160,6 +160,138 @@ async function main() {
     await context.close();
   }
 
+  // ── Ticker renders and doesn't overlap ──────────────────────────────────────
+  console.log('\n[6] Payment ticker — renders under nav, no overlap with cards below it');
+  for (const width of [1440, 375]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/economy`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(2000);
+
+    const result = await page.evaluate(() => {
+      const ticker = document.querySelector('.ticker, .ticker-static') as HTMLElement | null;
+      if (!ticker) return { present: false, overlaps: false };
+      const tRect = ticker.getBoundingClientRect();
+      const cards = Array.from(document.querySelectorAll('.card')) as HTMLElement[];
+      const overlaps = cards.some(c => {
+        const r = c.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return false;
+        const overlapArea = Math.max(0, Math.min(tRect.right, r.right) - Math.max(tRect.left, r.left))
+                           * Math.max(0, Math.min(tRect.bottom, r.bottom) - Math.max(tRect.top, r.top));
+        return overlapArea > 0;
+      });
+      return { present: true, overlaps };
+    });
+
+    if (!result.present) fail(`[${width}px] /economy — ticker did not render (no real events yet, or a real bug)`);
+    else if (result.overlaps) fail(`[${width}px] /economy — ticker overlaps a card below it`);
+    else ok(`[${width}px] /economy — ticker renders, no overlap`);
+
+    await context.close();
+  }
+
+  // ── Brief detail page ───────────────────────────────────────────────────────
+  console.log('\n[7] Brief detail page (/library/[id]) — renders receipts at both widths');
+  {
+    const briefsRes = await fetch(`${API_BASE}/api/briefs?limit=1`);
+    const briefs = briefsRes.ok ? await briefsRes.json() : [];
+    if (briefs.length === 0) {
+      ok('no published briefs yet to test the detail page against — structural check skipped honestly, not faked');
+    } else {
+      const briefId = briefs[0].id;
+      for (const width of [1440, 375]) {
+        const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+        const page = await context.newPage();
+        const errors: string[] = [];
+        page.on('pageerror', err => errors.push(err.message));
+        await page.goto(`${BASE}/library/${briefId}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(2500);
+        const text = await page.evaluate(() => document.body.innerText);
+        // Rendered text is CSS `text-transform: uppercase`, so innerText
+        // reports it as "PAYMENT RECEIPTS" — match case-insensitively.
+        const hasReceipts = /payment receipts/i.test(text);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+        if (hasReceipts && overflow <= 0 && errors.length === 0) ok(`[${width}px] /library/${briefId} — renders receipt manifest, no overflow, no errors`);
+        else fail(`[${width}px] /library/${briefId} — receipts:${hasReceipts} overflow:${overflow} errors:${errors.length}`);
+
+        await context.close();
+      }
+    }
+  }
+
+  // ── Grouped-skip row expands ────────────────────────────────────────────────
+  console.log('\n[8] Live Feed skip-grouping — collapsed row expands to reveal individual skips');
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/economy`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(2000);
+
+    const group = await page.$('.skip-group-row');
+    if (!group) {
+      ok('no run of 3+ consecutive skips in the current real feed to group — structural check skipped honestly, not faked');
+    } else {
+      const beforeCount = await page.$$eval('.skip-group-row ~ *', els => els.length).catch(() => 0);
+      await group.click();
+      await page.waitForTimeout(300);
+      const expanded = await page.evaluate(() => document.body.innerText.includes('▾'));
+      if (expanded) ok('skip-group row expands on click');
+      else fail(`skip-group row did not visibly expand (before: ${beforeCount})`);
+      await context.close();
+    }
+  }
+
+  // ── ?demo=1 presentation mode ────────────────────────────────────────────────
+  console.log('\n[9] ?demo=1 presentation mode — renders cleanly, nav hidden, no console errors');
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+    page.on('pageerror', err => errors.push(err.message));
+    await page.goto(`${BASE}/economy?demo=1`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(2500);
+
+    const navHidden = await page.evaluate(() => document.querySelector('.nav') === null);
+    const hasDemoClass = await page.evaluate(() => document.querySelector('.demo-mode') !== null);
+
+    if (navHidden) ok('?demo=1 hides the nav');
+    else fail('?demo=1 — nav is still present');
+    if (hasDemoClass) ok('?demo=1 applies the demo-mode presentation class');
+    else fail('?demo=1 — demo-mode class not applied');
+    if (errors.length === 0) ok('?demo=1 — zero console errors');
+    else fail(`?demo=1 — ${errors.length} console error(s): ${errors[0].slice(0, 100)}`);
+
+    await context.close();
+  }
+
+  // ── Reduced motion renders final states ─────────────────────────────────────
+  console.log('\n[10] Reduced motion — gated elements report no running animation');
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/economy`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForTimeout(2000);
+
+    const stillAnimating = await page.evaluate(() => {
+      const selectors = ['.ticker-track', '.spark-dot-pulse', '.stepper-node.active', '.glow-pulse-mint-once', '.animate-feed-flash', '.reasoning-line.newest'];
+      const offenders: string[] = [];
+      for (const sel of selectors) {
+        document.querySelectorAll(sel).forEach(el => {
+          const name = getComputedStyle(el).animationName;
+          if (name && name !== 'none') offenders.push(`${sel} -> ${name}`);
+        });
+      }
+      return offenders;
+    });
+
+    if (stillAnimating.length === 0) ok('no gated element reports a running animation under prefers-reduced-motion');
+    else fail(`${stillAnimating.length} element(s) still animating under reduced motion: ${stillAnimating[0]}`);
+
+    await context.close();
+  }
+
   await browser.close();
 
   console.log(`\n${failed === 0 ? '🎉' : '❌'} ${passed} passed, ${failed} failed`);

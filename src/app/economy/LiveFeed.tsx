@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { EconomyEvent } from '../../shared/types'
 import { txUrl, shortTx, isRealTxHash } from '../../lib/explorer'
 
-interface FeedEntry {
+export interface FeedEntry {
   id: string
   type: EconomyEvent['type']
   label: string
@@ -148,11 +148,11 @@ function entryIcon(type: EconomyEvent['type']): { icon: string; color: string; b
 // A run of 3+ consecutive skipped-source entries collapses into one summary
 // row so low-value "skip" noise never crowds out real purchases/earns —
 // still built entirely from the real entries, just grouped for display.
-type RenderItem =
+export type RenderItem =
   | { kind: 'entry'; entry: FeedEntry }
   | { kind: 'skip-group'; id: string; entries: FeedEntry[] }
 
-function groupSkips(entries: FeedEntry[]): RenderItem[] {
+export function groupSkips(entries: FeedEntry[]): RenderItem[] {
   const out: RenderItem[] = []
   let run: FeedEntry[] = []
 

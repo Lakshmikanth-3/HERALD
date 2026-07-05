@@ -6,7 +6,7 @@ import { dedupeNewById } from '../../lib/dedupe'
 
 interface GraphNode {
   id: string
-  type: 'agent' | 'source' | 'buyer'
+  type: 'agent' | 'source' | 'buyer' | 'marketplace'
   label: string
   totalUsd: number
   x?: number
@@ -37,6 +37,15 @@ const AGENT_NODE: GraphNode = { id: 'herald-agent', type: 'agent', label: 'HERAL
 
 function nodeRadius(node: GraphNode): number {
   return node.type === 'agent' ? 18 : Math.min(6 + node.totalUsd * 1000, 14)
+}
+
+function nodeColor(type: GraphNode['type']): string {
+  switch (type) {
+    case 'agent':       return '#2775CA'
+    case 'source':      return '#2775CA'
+    case 'buyer':       return '#4DFFD2'
+    case 'marketplace': return '#A78BFA'
+  }
 }
 
 // Applies one event's effect on the graph (node totals + edge activity).
@@ -74,6 +83,26 @@ function applyEventToState(state: GraphState, event: EconomyEvent, activate: boo
     state.edges.set(edgeKey, {
       sourceId: 'herald-agent', targetId: id, active: true,
       lastActive: activate ? Date.now() : undefined, direction: 'in',
+    })
+    return edgeKey
+  }
+
+  // Agent-to-agent marketplace purchase (src/agent/agentToAgent.ts) — a real
+  // x402 buy from another agent's published brief, kept visually distinct
+  // (purple) from ordinary source reads even though money flows the same
+  // direction (agent pays out).
+  if (event.type === 'discovery:bought') {
+    const briefId = (d.briefId as string) ?? 'brief'
+    const id = `marketplace:${briefId}`
+    const existing = state.nodes.get(id)
+    state.nodes.set(id, {
+      id, type: 'marketplace', label: ((d.title as string) ?? 'marketplace brief').slice(0, 16),
+      totalUsd: (existing?.totalUsd ?? 0) + ((d.amountUsd as number) ?? 0),
+    })
+    const edgeKey = `${id}→herald-agent`
+    state.edges.set(edgeKey, {
+      sourceId: id, targetId: 'herald-agent', active: true,
+      lastActive: activate ? Date.now() : undefined, direction: 'out',
     })
     return edgeKey
   }
@@ -201,9 +230,14 @@ export default function FlowGraph({ events, history }: Props) {
         if (node.type === 'source') {
           node.x = cx - W * 0.32
           node.y = cy - ((count - 1) * 42) / 2 + idx * 42
-        } else {
+        } else if (node.type === 'buyer') {
           node.x = cx + W * 0.32
           node.y = cy - ((count - 1) * 42) / 2 + idx * 42
+        } else {
+          // marketplace: below the agent so it never collides with the
+          // source (left) / buyer (right) fans.
+          node.x = cx - ((count - 1) * 60) / 2 + idx * 60
+          node.y = cy + H * 0.32
         }
       })
 
@@ -233,12 +267,13 @@ export default function FlowGraph({ events, history }: Props) {
         const ctrlX = mx + nx * bend
         const ctrlY = my + ny * bend
 
+        const isMarketplace = src.type === 'marketplace' || tgt.type === 'marketplace'
+        const edgeRgb = isMarketplace ? '167,139,250' : edge.direction === 'out' ? '39,117,202' : '77,255,210'
+
         ctx.beginPath()
         ctx.moveTo(src.x, src.y!)
         ctx.quadraticCurveTo(ctrlX, ctrlY, tgt.x, tgt.y!)
-        ctx.strokeStyle = edge.direction === 'out'
-          ? `rgba(39,117,202,${opacity})`
-          : `rgba(77,255,210,${opacity})`
+        ctx.strokeStyle = `rgba(${edgeRgb},${opacity})`
         ctx.lineWidth = recentlyActive ? 1.5 : 1
         if (!recentlyActive) {
           ctx.setLineDash([4, 7])
@@ -278,7 +313,8 @@ export default function FlowGraph({ events, history }: Props) {
         const nx = -dy / len, ny = dx / len
         const bend = edge.direction === 'out' ? 26 : -26
         const ctrlX = mx + nx * bend, ctrlY = my + ny * bend
-        const color = particle.dir === 'out' ? '#2775CA' : '#4DFFD2'
+        const isMarketplace = src.type === 'marketplace' || tgt.type === 'marketplace'
+        const color = isMarketplace ? '#A78BFA' : particle.dir === 'out' ? '#2775CA' : '#4DFFD2'
 
         function pointAt(t: number) {
           const it = 1 - t
@@ -318,18 +354,8 @@ export default function FlowGraph({ events, history }: Props) {
       nodes.forEach(node => {
         if (node.x == null) return
         const radius = nodeRadius(node)
-        let color: string, label: string
-
-        if (node.type === 'agent') {
-          color = '#2775CA'
-          label = 'HERALD'
-        } else if (node.type === 'source') {
-          color = '#2775CA'
-          label = node.label
-        } else {
-          color = '#4DFFD2'
-          label = node.label
-        }
+        const color = nodeColor(node.type)
+        const label = node.type === 'agent' ? 'HERALD' : node.label
         const isHovered = hoverRef.current?.node.id === node.id
         const drawRadius = node.type === 'agent'
           ? (reduceMotion ? 18 : 18 + Math.sin(pulse) * 3)
@@ -383,6 +409,7 @@ export default function FlowGraph({ events, history }: Props) {
         <div style={{ display: 'flex', gap: 10, fontSize: 10, color: 'var(--text-muted)' }}>
           <span style={{ color: 'var(--usdc-blue)' }}>● Sources</span>
           <span style={{ color: 'var(--earn-mint)' }}>● Buyers</span>
+          <span style={{ color: 'var(--ai-purple)' }}>● Marketplace</span>
         </div>
       </div>
       <div style={{ position: 'relative', flex: 1 }}>
@@ -418,7 +445,9 @@ export default function FlowGraph({ events, history }: Props) {
               {hover.node.type === 'agent' ? 'HERALD (you)' : hover.node.label}
             </div>
             {hover.node.type !== 'agent' && (
-              <div className="font-mono" style={{ color: hover.node.type === 'source' ? 'var(--usdc-blue)' : 'var(--earn-mint)' }}>
+              <div className="font-mono" style={{
+                color: hover.node.type === 'source' ? 'var(--usdc-blue)' : hover.node.type === 'buyer' ? 'var(--earn-mint)' : 'var(--ai-purple)',
+              }}>
                 ${hover.node.totalUsd.toFixed(4)} total
               </div>
             )}

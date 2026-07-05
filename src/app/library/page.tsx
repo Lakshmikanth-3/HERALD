@@ -213,7 +213,9 @@ export default function LibraryPage() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{b.title}</h3>
+                      <a href={`/library/${b.id}`} style={{ textDecoration: 'none' }}>
+                        <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{b.title}</h3>
+                      </a>
                       <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                         <span className={`badge ${b.confidence === 'HIGH' ? 'badge-mint' : b.confidence === 'MEDIUM' ? 'badge-amber' : 'badge-red'}`}>
                           {b.confidence}
@@ -253,6 +255,9 @@ export default function LibraryPage() {
                         >
                           {isExpanded ? 'Hide receipts ▲' : `Payment receipts (${b.purchases}) ▾`}
                         </button>
+                        <a href={`/library/${b.id}`} style={{ color: 'var(--usdc-blue)', fontSize: 12, textDecoration: 'none' }}>
+                          Full page →
+                        </a>
                       </div>
                       {isExpanded && (
                         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>

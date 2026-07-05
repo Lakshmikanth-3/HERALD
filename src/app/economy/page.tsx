@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import HeraldNav from '../components/HeraldNav'
 import SSEListener from '../components/SSEListener'
 import LiveFeed, { buildFeedEntry } from './LiveFeed'
 import PaymentTicker from './PaymentTicker'
+import ReasoningPanel from './ReasoningPanel'
 import BalanceCard from './BalanceCard'
 import FlowGraph from './FlowGraph'
 import BriefPreview from './BriefPreview'
@@ -33,6 +35,20 @@ interface BalanceData {
 type FeedEntry = NonNullable<ReturnType<typeof buildFeedEntry>>
 
 export default function EconomyPage() {
+  return (
+    <Suspense fallback={null}>
+      <EconomyDashboard />
+    </Suspense>
+  )
+}
+
+function EconomyDashboard() {
+  const searchParams = useSearchParams()
+  // Purely presentational "clean stage" mode for demo recordings — no
+  // functional change, just hides nav clutter and gives the reasoning
+  // panel a head start open. Toggled via ?demo=1, nothing else reads it.
+  const demoMode = searchParams.get('demo') === '1'
+
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const [balance, setBalance] = useState<BalanceData>({ usdcBalance: 0, spentToday: 0, earnedToday: 0 })
   const [feedEntries, setFeedEntries] = useState<FeedEntry[]>([])
@@ -201,9 +217,9 @@ export default function EconomyPage() {
 
   return (
     <>
-    <div className="economy-dashboard ambient-bg">
+    <div className={`economy-dashboard ambient-bg${demoMode ? ' demo-mode' : ''}`}>
       <SSEListener onEvent={handleEvent} />
-      <HeraldNav topic={status?.topic ?? undefined} />
+      {!demoMode && <HeraldNav topic={status?.topic ?? undefined} />}
       <PaymentTicker events={tickerEvents} />
 
       <div style={{ padding: '20px 20px 0' }}>
@@ -255,6 +271,9 @@ export default function EconomyPage() {
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
               <LiveFeed entries={feedEntries} />
+            </div>
+            <div style={{ flexShrink: 0 }}>
+              <ReasoningPanel events={allEvents} forceOpen={demoMode} />
             </div>
           </div>
         </div>

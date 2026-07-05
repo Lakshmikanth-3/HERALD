@@ -52,7 +52,7 @@ interface PaymentRequirements {
   extra?: Record<string, unknown>;
 }
 
-function relevanceScore(topic: string, candidateTopic: string, teaser: string): number {
+export function relevanceScore(topic: string, candidateTopic: string, teaser: string): number {
   const topicWords = topic.toLowerCase().split(/\s+/).filter(w => w.length > 3);
   if (topicWords.length === 0) return 0;
   const text = (candidateTopic + ' ' + teaser).toLowerCase();

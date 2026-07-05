@@ -547,6 +547,62 @@ input[type=range].shashi-range { -webkit-appearance: none; width: 100%; backgrou
 /* ── Profitable-moment celebration ────────────────────────────────────────── */
 .glow-pulse-mint-once { animation: glowPulseMint 1.1s ease-out forwards; }
 
+/* ── ?demo=1 presentation mode (Economy) ──────────────────────────────────── */
+/* Purely a "clean stage" for screen recordings: nav is conditionally not
+   rendered by the page itself; `zoom` (not `transform: scale`) is used here
+   specifically because most of this dashboard sizes itself in literal px,
+   not relative units — `zoom` reflows the whole subtree at the larger size
+   instead of visually stretching a fixed-size box, so nothing clips. */
+.demo-mode { zoom: 1.15; }
+
+/* ── Network cycle timeline tooltip ───────────────────────────────────────── */
+.timeline-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(7,11,20,0.97);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s;
+  pointer-events: none;
+  z-index: 20;
+}
+.timeline-bar-wrap:hover .timeline-tooltip { opacity: 1; visibility: visible; }
+
+/* ── Agent Reasoning panel (terminal-style decision log) ─────────────────── */
+.reasoning-panel {
+  font-family: var(--font-mono), monospace;
+  background: #05070c;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.reasoning-line { white-space: pre-wrap; line-height: 1.6; opacity: 0.75; }
+.reasoning-line.newest {
+  opacity: 1;
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  width: var(--full-width, 100%);
+  animation: reasoningType 0.5s steps(30, end);
+}
+@keyframes reasoningType {
+  from { width: 0; }
+  to   { width: var(--full-width, 100%); }
+}
+
 /* ── Sparkline latest-point pulse ─────────────────────────────────────────── */
 @keyframes sparkDotPulse {
   0%   { r: 2.5; opacity: 0.9; }
@@ -556,9 +612,10 @@ input[type=range].shashi-range { -webkit-appearance: none; width: 100%; backgrou
 
 @media (prefers-reduced-motion: reduce) {
   .ticker-track, .animate-feed-flash, .stepper-node.active,
-  .card-hover:hover, .glow-pulse-mint-once, .spark-dot-pulse {
+  .card-hover:hover, .glow-pulse-mint-once, .spark-dot-pulse, .reasoning-line.newest {
     animation: none !important;
   }
+  .reasoning-line.newest { width: auto !important; overflow: visible !important; white-space: pre-wrap !important; }
   .card-hover:hover { transform: none !important; box-shadow: none !important; }
   .btn-sheen::after { transition: none !important; display: none !important; }
   .ambient-bg::before { animation: none !important; opacity: 0.025; }
